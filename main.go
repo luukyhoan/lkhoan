@@ -75,7 +75,11 @@ func main() {
 					pendingProd = &sess.LastProduct
 				}
 				sessionMutex.Unlock()
-
+				// Kiểm tra nhanh trong RAM nếu khớp tên sản phẩm
+				if quickReply := FindProductInMemory(userMsg); quickReply != "" {
+				go metaSender.SendTextMessage(senderID, quickReply)
+				continue
+				}
 				// Gọi AI với đầy đủ ngữ cảnh câu trước
 				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
 				if err != nil {

@@ -127,3 +127,69 @@ func (im *InventoryManager) GetAvailableProducts() []Product {
 	}
 	return available
 }
+import (
+    "fmt"
+    "strings"
+    "unicode"
+    "golang.org/x/text/runes"
+    "golang.org/x/text/transform"
+    "golang.org/x/text/unicode/norm"
+)
+
+// removeDiacritics xóa dấu tiếng Việt để tìm kiếm không dấu
+func removeDiacritics(str string) string {
+    t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+    result, _, _ := transform.String(t, str)
+    return strings.ToLower(result)
+}
+
+// FindProductInMemory tìm nhanh mặt hàng trong RAM theo từ khóa khách gõ
+func FindProductInMemory(query string) string {
+    q := removeDiacritics(strings.TrimSpace(query))
+    if len(q) < 2 {
+        return ""
+    }
+
+    var matched []Product
+    for _, p := range Inventory {
+        name := removeDiacritics(p.TenSP + " " + p.MaSP)
+        // Tách các từ trong câu hỏi của khách (vd: "dazz", "70")
+        words := strings.Fields(q)
+        matchAll := true
+        for _, w := range words {
+            if !strings.Contains(name, w) {
+                matchAll = false
+                break
+            }
+        }
+        if matchAll {
+            matched = append(matched, p)
+        }
+    }
+
+    if len(matched) == 0 {
+        return ""
+    }
+
+    // Nếu khớp đúng 1 sản phẩm, tạo câu trả lời ngay lập tức
+    if len(matched) == 1 {
+        p := matched[0]
+        status := "còn hàng"
+        if p.SoLuong <= 0 {
+            status = "tạm hết hàng"
+        }
+        return fmt.Sprintf("Dạ bên em đang sẵn %s (%s):\n- Giá sỉ lô: %s\n- Giá lẻ thùng: %s\n- Tình trạng: %s\n\nMình dự tính lấy số lượng thế nào để em hỗ trợ lên đơn ạ?", p.TenSP, p.QuyCach, p.GiaSiLo, p.GiaLeThung, status)
+    }
+
+    // Nếu khớp 2-4 sản phẩm (vd khách chỉ gõ "dazz" hoặc "nho")
+    if len(matched) <= 4 {
+        res := "Dạ bên em đang có các loại sau ạ:\n"
+        for _, p := range matched {
+            res += fmt.Sprintf("• %s (%s) - Sỉ: %s | Lẻ: %s\n", p.TenSP, p.QuyCach, p.GiaSiLo, p.GiaLeThung)
+        }
+        res += "\nMình đang quan tâm size/loại nào để em báo chi tiết ạ?"
+        return res
+    }
+
+    return "" // Khớp quá nhiều sản phẩm hoặc câu hỏi phức tạp -> nhường cho Gemini
+}
