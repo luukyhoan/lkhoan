@@ -38,7 +38,7 @@ type WebhookCallback struct {
 	} `json:"entry"`
 }
 
-// sendProductPhotos quét toàn bộ ảnh trong Folder Drive và gửi bung trực tiếp ra Messenger
+// sendProductPhotos bốc tách dữ liệu ảnh từ Drive và upload trực tiếp sang Messenger
 func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName string) {
 	if folderURL == "" {
 		return
@@ -55,5 +55,127 @@ func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName s
 		}
 	} else {
 		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị có thể bấm xem album ảnh thực tế %s tại đây ạ:\n%s", productName, folderURL))
+	}
+}
+
+func main() {
+	_ = godotenv.Load()
+
+	sheetID := os.Getenv("SPREADSHEET_ID")
+	credFile := "credentials.json"
+
+	inventoryMgr := NewInventoryManager(sheetID, credFile)
+	InitDriveHelper(credFile)
+
+	aiAdvisor := NewMultiAIAdvisor(
+		os.Getenv("GROQ_API_KEY"),
+		os.Getenv("GEMINI_API_KEY"),
+	)
+	metaSender := NewMetaSender()
+
+	verifyToken := os.Getenv("META_VERIFY_TOKEN")
+	if verifyToken == "" {
+		verifyToken = "hp_fruit_secret_2026"
+	}
+
+	r := gin.Default()
+
+	r.GET("/webhook", func(c *gin.Context) {
+		mode := c.Query("hub.mode")
+		token := c.Query("hub.verify_token")
+		challenge := c.Query("hub.challenge")
+
+		if mode == "subscribe" && token == verifyToken {
+			c.String(http.StatusOK, challenge)
+			return
+		}
+		c.String(http.StatusForbidden, "Forbidden")
+	})
+
+	r.POST("/webhook", func(c *gin.Context) {
+		var callback WebhookCallback
+		if err := c.ShouldBindJSON(&callback); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": "EVENT_RECEIVED"})
+
+		if callback.Object != "page" {
+			return
+		}
+
+		for _, entry := range callback.Entry {
+			for _, event := range entry.Messaging {
+				senderID := event.Sender.ID
+				userMsg := strings.TrimSpace(event.Message.Text)
+
+				if userMsg == "" {
+					continue
+				}
+
+				customerName := metaSender.GetUserName(senderID)
+				available := inventoryMgr.GetAvailableProducts()
+
+				sessionMutex.Lock()
+				sess, exists := userSessions[senderID]
+				if !exists {
+					sess = &UserSession{}
+					userSessions[senderID] = sess
+				}
+				var pendingProd *Product
+				if sess.LastProduct.MaSP != "" {
+					pendingProd = &sess.LastProduct
+				}
+				sessionMutex.Unlock()
+
+				// 1. Phản hồi nhanh từ RAM: Giữ kín giá, gửi chùm ảnh Drive trực tiếp
+				if match := FindProductInMemory(userMsg); match != nil {
+					sessionMutex.Lock()
+					if match.LastProduct != nil {
+						sess.LastProduct = *match.LastProduct
+					}
+					sessionMutex.Unlock()
+
+					go metaSender.SendTextMessage(senderID, match.Message)
+					if match.PhotoURL != "" {
+						go sendProductPhotos(metaSender, senderID, match.PhotoURL, match.LastProduct.TenSP)
+					}
+					continue
+				}
+
+				// 2. Chuyển sang AI (Groq/Gemini song song) xử lý phân loại giá
+				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
+				if err != nil {
+					log.Printf("AI Error: %v", err)
+					continue
+				}
+
+				go metaSender.SendTextMessage(senderID, aiRes.Message)
+
+				if len(aiRes.SelectedCodes) > 0 {
+					go func(codes []string) {
+						for _, code := range codes {
+							for _, p := range available {
+								if strings.EqualFold(p.MaSP, code) && p.FolderAnhID != "" {
+									sendProductPhotos(metaSender, senderID, p.FolderAnhID, p.TenSP)
+									break
+								}
+							}
+						}
+					}(aiRes.SelectedCodes)
+				}
+			}
+		}
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server đang chạy trên cổng %s...", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("Không thể khởi động server: %v", err)
 	}
 }
