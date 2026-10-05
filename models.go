@@ -16,22 +16,12 @@ type GeminiBotResponse struct {
 	SelectedCodes []string `json:"selected_codes"`
 }
 
-type MetaCallback struct {
-	Entry []struct {
-		Messaging []struct {
-			Sender struct {
-				ID string `json:"id"`
-			} `json:"sender"`
-			Message struct {
-				Text string `json:"text"`
-			} `json:"message"`
-			Postback struct {
-				Payload string `json:"payload"`
-			} `json:"postback"`
-		} `json:"messaging"`
-	} `json:"entry"`
-}
 type UserSession struct {
 	LastProduct Product
-	LastAction  string // "WAITING_ROLE"
+}
+
+type MatchResult struct {
+	Message     string
+	LastProduct *Product
+	PhotoURL    string
 }

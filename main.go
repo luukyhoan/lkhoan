@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +17,6 @@ var (
 	sessionMutex sync.Mutex
 )
 
-// WebhookCallback cấu trúc nhận webhook từ Meta
 type WebhookCallback struct {
 	Object string `json:"object"`
 	Entry  []struct {
@@ -54,7 +55,6 @@ func main() {
 
 	r := gin.Default()
 
-	// 1. Endpoint xác thực Webhook với Meta (GET)
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
 		token := c.Query("hub.verify_token")
@@ -67,7 +67,6 @@ func main() {
 		c.String(http.StatusForbidden, "Forbidden")
 	})
 
-	// 2. Endpoint tiếp nhận tin nhắn từ Facebook Messenger (POST)
 	r.POST("/webhook", func(c *gin.Context) {
 		var callback WebhookCallback
 		if err := c.ShouldBindJSON(&callback); err != nil {
@@ -93,7 +92,6 @@ func main() {
 				customerName := metaSender.GetUserName(senderID)
 				available := inventoryMgr.GetAvailableProducts()
 
-				// Lấy sản phẩm khách đang trao đổi dở dang trước đó
 				sessionMutex.Lock()
 				sess, exists := userSessions[senderID]
 				if !exists {
@@ -106,21 +104,47 @@ func main() {
 				}
 				sessionMutex.Unlock()
 
-				// Tối ưu: Kiểm tra nhanh trong RAM nếu khớp tên sản phẩm
-				if quickReply := FindProductInMemory(userMsg); quickReply != "" {
-					go metaSender.SendTextMessage(senderID, quickReply)
+				// 1. Tìm nhanh trong RAM (không tốn token, không lộ giá, tự gửi ảnh)
+				if match := FindProductInMemory(userMsg); match != nil {
+					sessionMutex.Lock()
+					if match.LastProduct != nil {
+						sess.LastProduct = *match.LastProduct
+					}
+					sessionMutex.Unlock()
+
+					go metaSender.SendTextMessage(senderID, match.Message)
+
+					if match.PhotoURL != "" {
+						go func(link string, pName string) {
+							caption := fmt.Sprintf("📸 Hình ảnh thực tế lô %s tại kho:\n%s", pName, link)
+							metaSender.SendTextMessage(senderID, caption)
+						}(match.PhotoURL, match.LastProduct.TenSP)
+					}
 					continue
 				}
 
-				// Nếu không khớp từ khóa rõ ràng, gọi AI Gemini tư vấn
+				// 2. Chuyển sang AI để xử lý báo giá riêng sỉ/lẻ khi khách phản hồi nhu cầu
 				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
 				if err != nil {
 					log.Printf("Gemini Error: %v", err)
 					continue
 				}
 
-				// Phản hồi tin nhắn
 				go metaSender.SendTextMessage(senderID, aiRes.Message)
+
+				if len(aiRes.SelectedCodes) > 0 {
+					go func(codes []string) {
+						for _, code := range codes {
+							for _, p := range available {
+								if strings.EqualFold(p.MaSP, code) && p.FolderAnhID != "" {
+									caption := fmt.Sprintf("📸 Hình ảnh thực tế %s:\n%s", p.TenSP, p.FolderAnhID)
+									metaSender.SendTextMessage(senderID, caption)
+									break
+								}
+							}
+						}
+					}(aiRes.SelectedCodes)
+				}
 			}
 		}
 	})

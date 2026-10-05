@@ -17,7 +17,6 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-// InventoryManager quản lý danh mục và đồng bộ tồn kho
 type InventoryManager struct {
 	SheetID         string
 	CredentialsFile string
@@ -25,14 +24,12 @@ type InventoryManager struct {
 	products        []Product
 }
 
-// Biến toàn cục để tra cứu nhanh trong RAM
 var (
 	GlobalInventoryMgr *InventoryManager
 	Inventory          []Product
 	inventoryMutex     sync.RWMutex
 )
 
-// NewInventoryManager khởi tạo bộ quản lý kho và chạy đồng bộ nền
 func NewInventoryManager(sheetID, credentialsFile string) *InventoryManager {
 	mgr := &InventoryManager{
 		SheetID:         sheetID,
@@ -40,12 +37,10 @@ func NewInventoryManager(sheetID, credentialsFile string) *InventoryManager {
 	}
 	GlobalInventoryMgr = mgr
 
-	// Tải lần đầu tiên khi khởi động
 	if err := mgr.Refresh(); err != nil {
 		log.Printf("[Sheets] Khởi tạo dữ liệu kho thất bại: %v", err)
 	}
 
-	// Chu kỳ tự động tải lại dữ liệu từ Google Sheets mỗi 5 phút
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -59,7 +54,6 @@ func NewInventoryManager(sheetID, credentialsFile string) *InventoryManager {
 	return mgr
 }
 
-// Refresh đọc dữ liệu từ tab Bang_Gia trên Google Sheets vào RAM
 func (im *InventoryManager) Refresh() error {
 	ctx := context.Background()
 	srv, err := sheets.NewService(ctx, option.WithCredentialsFile(im.CredentialsFile), option.WithScopes(sheets.SpreadsheetsReadonlyScope))
@@ -123,7 +117,6 @@ func (im *InventoryManager) Refresh() error {
 	return nil
 }
 
-// GetAvailableProducts lấy danh sách sản phẩm
 func (im *InventoryManager) GetAvailableProducts() []Product {
 	im.mu.RLock()
 	defer im.mu.RUnlock()
@@ -132,25 +125,23 @@ func (im *InventoryManager) GetAvailableProducts() []Product {
 	return res
 }
 
-// removeDiacritics loại bỏ dấu tiếng Việt để đối soát từ khóa
 func removeDiacritics(str string) string {
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
 	result, _, _ := transform.String(t, str)
 	return strings.ToLower(result)
 }
 
-// FindProductInMemory tìm kiếm thông minh từ RAM: nhận diện mã, tên hoặc nhóm quả
-func FindProductInMemory(query string) string {
+// FindProductInMemory tìm kiếm nhanh trong RAM, giữ kín giá tiền và kèm ảnh
+func FindProductInMemory(query string) *MatchResult {
 	q := removeDiacritics(strings.TrimSpace(query))
 	if len(q) < 2 {
-		return ""
+		return nil
 	}
 
-	// Bỏ qua các câu chào hỏi hoặc câu khẳng định số lượng (để Gemini tiếp tục hội thoại)
-	skipKeywords := []string{"chao", "xin chao", "alo", "dia chi", "so dien thoai", "thung", "lay", "mua an", "kinh doanh"}
+	skipKeywords := []string{"chao", "xin chao", "alo", "dia chi", "so dien thoai", "thung", "lay", "mua an", "kinh doanh", "gia dinh", "bieu"}
 	for _, kw := range skipKeywords {
 		if q == kw {
-			return ""
+			return nil
 		}
 	}
 
@@ -162,9 +153,7 @@ func FindProductInMemory(query string) string {
 	var matched []Product
 	words := strings.Fields(q)
 
-	// 1. Tìm khớp trực tiếp theo tên, mã hoặc danh mục
 	for _, p := range items {
-		// Bỏ qua sản phẩm đã hết hàng trong kho nếu tìm nhóm chung
 		if p.SoLuong <= 0 {
 			continue
 		}
@@ -172,7 +161,6 @@ func FindProductInMemory(query string) string {
 		searchTarget := removeDiacritics(p.TenSP + " " + p.MaSP + " " + p.DanhMuc + " " + p.QuyCach)
 		matchAll := true
 		for _, w := range words {
-			// Bỏ qua các từ nối phổ biến khi tìm
 			if w == "co" || w == "khong" || w == "em" || w == "shop" || w == "ban" || w == "cho" || w == "gia" {
 				continue
 			}
@@ -187,25 +175,36 @@ func FindProductInMemory(query string) string {
 	}
 
 	if len(matched) == 0 {
-		return ""
+		return nil
 	}
 
-	// Trường hợp 1: Khách hỏi đúng 1 mã quả cụ thể (ví dụ: "kiwi nzl s22", "cam nam phi s55")
+	// Khớp 1 sản phẩm cụ thể
 	if len(matched) == 1 {
 		p := matched[0]
-		return fmt.Sprintf("Dạ bên em đang sẵn %s (%s) hàng chuẩn nhập khẩu cao cấp ạ:\n• Giá lẻ: %s/thùng\n• Giá sỉ lô: %s\n\nAnh/Chị dự tính lấy số lượng dùng gia đình, làm quà biếu hay lấy cho cửa hàng/đại lý để em áp dụng chính sách giá tốt nhất ạ?",
-			p.TenSP, p.QuyCach, p.GiaLeThung, p.GiaSiLo)
-	}
+		msg := fmt.Sprintf("Dạ bên em đang sẵn %s (%s) hàng bay mới về, quả chắc cuống tươi chuẩn đẹp ạ.\n\nAnh/Chị dự tính lấy số lượng dùng gia đình, làm quà biếu hay lấy cho shop/cửa hàng để em hỗ trợ chính sách giá tốt nhất cho mình ạ?",
+			p.TenSP, p.QuyCach)
 
-	// Trường hợp 2: Khách hỏi theo nhóm/chủng loại (ví dụ: "có cam không", "bên em có nho không", "táo")
-	if len(matched) <= 6 {
-		res := "Dạ kho HP FRUIT đang sẵn các dòng sau mới về, chất lượng tuyển chọn rất đẹp ạ:\n"
-		for _, p := range matched {
-			res += fmt.Sprintf("• %s (%s) — Lẻ: %s/thùng | Sỉ lô: %s\n", p.TenSP, p.QuyCach, p.GiaLeThung, p.GiaSiLo)
+		return &MatchResult{
+			Message:     msg,
+			LastProduct: &p,
+			PhotoURL:    p.FolderAnhID,
 		}
-		res += "\nAnh/Chị đang quan tâm dòng nào, dự tính dùng gia đình hay lấy cho cửa hàng để em gửi hình ảnh thực tế và tư vấn kỹ hơn ạ?"
-		return res
 	}
 
-	return ""
+	// Khớp theo nhóm quả (cam, nho, táo...)
+	if len(matched) <= 5 {
+		msg := "Dạ kho HP FRUIT đang sẵn các dòng sau hàng mới về tuyển chọn rất đẹp ạ:\n"
+		for _, p := range matched {
+			msg += fmt.Sprintf("• %s (%s)\n", p.TenSP, p.QuyCach)
+		}
+		msg += "\nAnh/Chị đang quan tâm dòng nào, dự tính dùng gia đình hay lấy cho cửa hàng để em gửi hình ảnh thực tế và báo chính sách giá tốt nhất ạ?"
+
+		return &MatchResult{
+			Message:     msg,
+			LastProduct: &matched[0],
+			PhotoURL:    matched[0].FolderAnhID,
+		}
+	}
+
+	return nil
 }
