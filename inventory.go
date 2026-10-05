@@ -139,11 +139,19 @@ func removeDiacritics(str string) string {
 	return strings.ToLower(result)
 }
 
-// FindProductInMemory tìm kiếm tức thời trong RAM không qua Gemini API
+// FindProductInMemory tìm kiếm thông minh từ RAM: nhận diện mã, tên hoặc nhóm quả
 func FindProductInMemory(query string) string {
 	q := removeDiacritics(strings.TrimSpace(query))
 	if len(q) < 2 {
 		return ""
+	}
+
+	// Bỏ qua các câu chào hỏi hoặc câu khẳng định số lượng (để Gemini tiếp tục hội thoại)
+	skipKeywords := []string{"chao", "xin chao", "alo", "dia chi", "so dien thoai", "thung", "lay", "mua an", "kinh doanh"}
+	for _, kw := range skipKeywords {
+		if q == kw {
+			return ""
+		}
 	}
 
 	inventoryMutex.RLock()
@@ -154,11 +162,21 @@ func FindProductInMemory(query string) string {
 	var matched []Product
 	words := strings.Fields(q)
 
+	// 1. Tìm khớp trực tiếp theo tên, mã hoặc danh mục
 	for _, p := range items {
-		name := removeDiacritics(p.TenSP + " " + p.MaSP + " " + p.QuyCach + " " + p.DanhMuc)
+		// Bỏ qua sản phẩm đã hết hàng trong kho nếu tìm nhóm chung
+		if p.SoLuong <= 0 {
+			continue
+		}
+
+		searchTarget := removeDiacritics(p.TenSP + " " + p.MaSP + " " + p.DanhMuc + " " + p.QuyCach)
 		matchAll := true
 		for _, w := range words {
-			if !strings.Contains(name, w) {
+			// Bỏ qua các từ nối phổ biến khi tìm
+			if w == "co" || w == "khong" || w == "em" || w == "shop" || w == "ban" || w == "cho" || w == "gia" {
+				continue
+			}
+			if !strings.Contains(searchTarget, w) {
 				matchAll = false
 				break
 			}
@@ -172,22 +190,20 @@ func FindProductInMemory(query string) string {
 		return ""
 	}
 
+	// Trường hợp 1: Khách hỏi đúng 1 mã quả cụ thể (ví dụ: "kiwi nzl s22", "cam nam phi s55")
 	if len(matched) == 1 {
 		p := matched[0]
-		status := "còn hàng sẵn kho"
-		if p.SoLuong <= 0 {
-			status = "tạm hết hàng"
-		}
-		return fmt.Sprintf("Dạ bên em đang sẵn %s (%s):\n- Giá sỉ lô: %s\n- Giá lẻ thùng: %s\n- Tình trạng: %s\n\nMình lấy số lượng bao nhiêu thùng để em hỗ trợ lên đơn và báo giá tốt nhất cho mình nhé?",
-			p.TenSP, p.QuyCach, p.GiaSiLo, p.GiaLeThung, status)
+		return fmt.Sprintf("Dạ bên em đang sẵn %s (%s) hàng chuẩn nhập khẩu cao cấp ạ:\n• Giá lẻ: %s/thùng\n• Giá sỉ lô: %s\n\nAnh/Chị dự tính lấy số lượng dùng gia đình, làm quà biếu hay lấy cho cửa hàng/đại lý để em áp dụng chính sách giá tốt nhất ạ?",
+			p.TenSP, p.QuyCach, p.GiaLeThung, p.GiaSiLo)
 	}
 
-	if len(matched) <= 4 {
-		res := "Dạ kho bên em đang có sẵn các mã sau:\n"
+	// Trường hợp 2: Khách hỏi theo nhóm/chủng loại (ví dụ: "có cam không", "bên em có nho không", "táo")
+	if len(matched) <= 6 {
+		res := "Dạ kho HP FRUIT đang sẵn các dòng sau mới về, chất lượng tuyển chọn rất đẹp ạ:\n"
 		for _, p := range matched {
-			res += fmt.Sprintf("• %s (%s) - Sỉ: %s | Lẻ: %s\n", p.TenSP, p.QuyCach, p.GiaSiLo, p.GiaLeThung)
+			res += fmt.Sprintf("• %s (%s) — Lẻ: %s/thùng | Sỉ lô: %s\n", p.TenSP, p.QuyCach, p.GiaLeThung, p.GiaSiLo)
 		}
-		res += "\nMình quan tâm loại/size nào để em tư vấn chi tiết hơn ạ?"
+		res += "\nAnh/Chị đang quan tâm dòng nào, dự tính dùng gia đình hay lấy cho cửa hàng để em gửi hình ảnh thực tế và tư vấn kỹ hơn ạ?"
 		return res
 	}
 
