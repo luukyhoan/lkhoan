@@ -27,7 +27,6 @@ func NewMultiAIAdvisor(groqKey, geminiKey string) *MultiAIAdvisor {
 	}
 }
 
-// compactProduct rút gọn thông tin chỉ giữ lại các trường quan trọng để tiết kiệm token
 type CompactProduct struct {
 	MaSP       string `json:"ma"`
 	TenSP      string `json:"ten"`
@@ -37,7 +36,6 @@ type CompactProduct struct {
 }
 
 func (m *MultiAIAdvisor) GenerateReply(customerName, userMsg string, availableProducts []Product, pendingProd *Product) (*GeminiBotResponse, error) {
-	// Lọc gọn danh mục: nếu có sản phẩm đang nói dở, ưu tiên tập trung vào nó để tiết kiệm token
 	var compactList []CompactProduct
 	if pendingProd != nil && pendingProd.MaSP != "" {
 		compactList = append(compactList, CompactProduct{
@@ -48,10 +46,9 @@ func (m *MultiAIAdvisor) GenerateReply(customerName, userMsg string, availablePr
 			GiaSiLo:    pendingProd.GiaSiLo,
 		})
 	} else {
-		// Nếu chưa có, chỉ lấy tối đa 10 sản phẩm tiêu biểu
 		limit := len(availableProducts)
-		if limit > 10 {
-			limit = 10
+		if limit > 8 {
+			limit = 8
 		}
 		for i := 0; i < limit; i++ {
 			p := availableProducts[i]
@@ -73,32 +70,57 @@ func (m *MultiAIAdvisor) GenerateReply(customerName, userMsg string, availablePr
 			pendingProd.MaSP, pendingProd.TenSP, pendingProd.GiaLeThung, pendingProd.GiaSiLo)
 	}
 
-	systemInstruction := fmt.Sprintf(`Bạn là nhân viên tư vấn bán hàng của Tổng kho trái cây nhập khẩu HP FRUIT (Bồ Đề - Long Biên).
-Khách hàng: "%s". Sản phẩm quan tâm: [%s].
-Bảng giá: %s
+	systemInstruction := fmt.Sprintf(`Bạn là tư vấn viên HP FRUIT (Tổng kho hoa quả nhập khẩu Bồ Đề - Long Biên).
+Khách hàng: "%s".
+Sản phẩm đang trao đổi: [%s].
+Dữ liệu: %s
 
-QUY TẮC:
-1. NẾU CHƯA BIẾT NHU CẦU: Tuyệt đối KHÔNG báo giá lẻ/sỉ. Giới thiệu chất lượng và hỏi khách mua dùng gia đình hay kinh doanh shop để áp dụng giá tốt.
-2. NẾU KHÁCH LẺ (mua ăn/biếu): Chỉ báo GIÁ LẺ THÙNG (gia_le). Không nhắc giá sỉ. Đưa mã SP vào selected_codes.
-3. NẾU KHÁCH SỈ (lấy số lượng/kinh doanh): Chỉ báo GIÁ SỈ LÔ (gia_si). Không nhắc giá lẻ. Đưa mã SP vào selected_codes.
-4. Trả về JSON: {"message": "nội dung trả lời", "selected_codes": ["MÃ"]}`, customerName, pendingInfo, string(dataBytes))
+QUY TẮC BÁO GIÁ VÀ ĐỊNH DẠNG:
 
-	// 1. Chạy Groq với max_tokens=300 để không vượt giới hạn TPM
+1. KHI CHƯA BIẾT NHU CẦU CỦA KHÁCH:
+   - TUYỆT ĐỐI KHÔNG BÁO GIÁ LẺ HOẶC GIÁ SỈ.
+   - Giới thiệu ngắn gọn độ tươi ngon và hỏi:
+     "Dạ bên em sẵn hàng tươi mới chuẩn loại 1 ạ. Anh/Chị dự tính lấy số lượng dùng thử ăn gia đình hay lấy cho shop để em báo giá tốt nhất cho mình ạ?"
+
+2. KHI KHÁCH LÀ KHÁCH MUA LẺ (ăn gia đình, mua thử, biếu tặng):
+   BẮT BUỘC TRÌNH BÀY CHÍNH XÁC THEO MẪU SAU (KHÔNG nhắc giá sỉ, đưa mã SP vào selected_codes):
+
+Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:
+✨ Sản phẩm: [Tên SP]
+📦 Quy cách: [Quy cách net kg]
+💰 Giá lẻ thùng: [Giá gia_le]
+🍇 Hương vị / Chất ăn: [Mô tả ngắn gọn 1 câu: ngọt đậm, giòn tan, tép mọng nước, chuẩn air...]
+Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?
+
+3. KHI KHÁCH LÀ KHÁCH MUA SỈ (kinh doanh, mở shop, đại lý, mua số lượng):
+   BẮT BUỘC TRÌNH BÀY CHÍNH XÁC THEO MẪU SAU (KHÔNG nhắc giá lẻ, đưa mã SP vào selected_codes):
+
+Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:
+✨ Sản phẩm: [Tên SP]
+📦 Quy cách: [Quy cách net kg]
+💰 Giá sỉ lô: [Giá gia_si]
+🍇 Hương vị / Chất ăn: [Mô tả ngắn gọn chất lượng: hàng cont/bay tươi cứng, bao đẹp từng thùng...]
+Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?
+
+4. ĐỊNH DẠNG JSON TRẢ VỀ:
+{"message": "nội dung tin nhắn", "selected_codes": ["MÃ"]}`, customerName, pendingInfo, string(dataBytes))
+
+	// 1. Thử gọi Groq LPU
 	if m.groqKey != "" {
 		res, err := m.callGroq(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Groq gặp sự cố (%v), chuyển sang Gemini...", err)
+		log.Printf("[AI] Groq bận (%v), chuyển sang Gemini...", err)
 	}
 
-	// 2. Chuyển sang Gemini dự phòng nếu Groq lỗi
+	// 2. Chuyển sang Gemini dự phòng
 	if m.geminiKey != "" {
 		res, err := m.callGemini(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Gemini cũng gặp sự cố: %v", err)
+		log.Printf("[AI] Gemini bận: %v", err)
 	}
 
 	return nil, fmt.Errorf("hệ thống AI đang bận")
@@ -117,8 +139,8 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 			{Role: "user", Content: userMsg},
 		},
 		"response_format": map[string]string{"type": "json_object"},
-		"temperature":    0.2,
-		"max_tokens":     350, // Giới hạn token đầu ra để kiểm soát mức TPM
+		"temperature":    0.1,
+		"max_tokens":     300,
 	}
 
 	b, _ := json.Marshal(payload)
