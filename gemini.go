@@ -28,7 +28,7 @@ func (ai *AIAdvisor) GenerateReply(customerName, userMessage string, availablePr
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.0-flash")
+	model := client.GenerativeModel("gemini-3.8-flash")
 	model.ResponseMIMEType = "application/json"
 
 	dataBytes, _ := json.Marshal(availableProducts)
