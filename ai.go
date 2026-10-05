@@ -96,7 +96,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		Content string `json:"content"`
 	}
 	payload := map[string]interface{}{
-		"model": "llama-3.3-70b-versatile",
+		"model": "llama-3.1-8b-instant",
 		"messages": []GroqMsg{
 			{Role: "system", Content: sysInst},
 			{Role: "user", Content: userMsg},
