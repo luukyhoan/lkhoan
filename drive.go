@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"strings"
@@ -28,7 +29,6 @@ func InitDriveHelper(credentialsFile string) {
 	log.Println("[Drive] Khởi tạo Google Drive Service thành công")
 }
 
-// ExtractFolderID bóc tách folder ID từ link Google Drive
 func ExtractFolderID(folderURL string) string {
 	folderURL = strings.TrimSpace(folderURL)
 	if folderURL == "" {
@@ -52,8 +52,12 @@ func ExtractFolderID(folderURL string) string {
 	return folderURL
 }
 
-// GetImageLinksInFolder lấy link xem trực tiếp của tối đa 5 ảnh trong folder
-func (d *DriveHelper) GetImageLinksInFolder(folderURL string) []string {
+type DriveImageFile struct {
+	Filename string
+	Data     []byte
+}
+
+func (d *DriveHelper) GetImageFilesFromFolder(folderURL string) []DriveImageFile {
 	if d == nil || d.srv == nil {
 		return nil
 	}
@@ -63,17 +67,27 @@ func (d *DriveHelper) GetImageLinksInFolder(folderURL string) []string {
 	}
 
 	q := fmt.Sprintf("'%s' in parents and mimeType contains 'image/' and trashed = false", folderID)
-	r, err := d.srv.Files.List().Q(q).Fields("files(id, name)").PageSize(5).Do()
+	r, err := d.srv.Files.List().Q(q).Fields("files(id, name)").PageSize(4).Do()
 	if err != nil {
-		log.Printf("[Drive] Lỗi đọc ảnh trong folder %s: %v", folderID, err)
+		log.Printf("[Drive] Lỗi đọc danh sách file folder %s: %v", folderID, err)
 		return nil
 	}
 
-	var directLinks []string
+	var results []DriveImageFile
 	for _, f := range r.Files {
-		// Link download/view trực tiếp để Facebook attachment tải được
-		link := fmt.Sprintf("https://drive.google.com/uc?export=view&id=%s", f.Id)
-		directLinks = append(directLinks, link)
+		resp, err := d.srv.Files.Get(f.Id).Download()
+		if err != nil {
+			log.Printf("[Drive] Không thể tải file %s: %v", f.Name, err)
+			continue
+		}
+		b, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err == nil && len(b) > 0 {
+			results = append(results, DriveImageFile{
+				Filename: f.Name,
+				Data:     b,
+			})
+		}
 	}
-	return directLinks
+	return results
 }
