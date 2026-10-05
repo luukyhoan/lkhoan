@@ -70,9 +70,10 @@ func main() {
 	inventoryMgr := NewInventoryManager(sheetID, credFile)
 	InitDriveHelper(credFile)
 
-	aiAdvisor := &AIAdvisor{
-		apiKey: os.Getenv("GEMINI_API_KEY"),
-	}
+	aiAdvisor := NewMultiAIAdvisor(
+		os.Getenv("GROQ_API_KEY"),
+		os.Getenv("GEMINI_API_KEY"),
+	)
 	metaSender := NewMetaSender()
 
 	verifyToken := os.Getenv("META_VERIFY_TOKEN")
