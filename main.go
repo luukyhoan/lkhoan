@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -37,11 +38,37 @@ type WebhookCallback struct {
 	} `json:"entry"`
 }
 
+// sendProductPhotos quét toàn bộ ảnh trong Folder Drive và gửi bung trực tiếp ra Messenger
+func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName string) {
+	if folderURL == "" {
+		return
+	}
+
+	links := GlobalDriveHelper.GetImageLinksInFolder(folderURL)
+	if len(links) > 0 {
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Em gửi Anh/Chị hình ảnh thực tế lô %s mới về tại kho bên em ạ:", productName))
+		for _, imgURL := range links {
+			// Thêm độ trễ nhỏ để Messenger hiển thị ảnh theo thứ tự mượt mà
+			time.Sleep(300 * time.Millisecond)
+			if err := sender.SendImageMessage(recipientID, imgURL); err != nil {
+				log.Printf("[Meta] Gửi ảnh attachment thất bại (%s): %v", imgURL, err)
+			}
+		}
+	} else {
+		// Dự phòng nếu folder Drive chưa có ảnh hoặc chưa cấp quyền cho Service Account
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị có thể bấm xem trực tiếp trọn bộ album ảnh và video lô %s tại đây ạ:\n%s", productName, folderURL))
+	}
+}
+
 func main() {
 	_ = godotenv.Load()
 
 	sheetID := os.Getenv("SPREADSHEET_ID")
-	inventoryMgr := NewInventoryManager(sheetID, "credentials.json")
+	credFile := "credentials.json"
+
+	// Khởi tạo quản lý kho và Drive Helper dùng chung credentials.json
+	inventoryMgr := NewInventoryManager(sheetID, credFile)
+	InitDriveHelper(credFile)
 
 	aiAdvisor := &AIAdvisor{
 		apiKey: os.Getenv("GEMINI_API_KEY"),
@@ -83,7 +110,7 @@ func main() {
 		for _, entry := range callback.Entry {
 			for _, event := range entry.Messaging {
 				senderID := event.Sender.ID
-				userMsg := event.Message.Text
+				userMsg := strings.TrimSpace(event.Message.Text)
 
 				if userMsg == "" {
 					continue
@@ -104,7 +131,7 @@ func main() {
 				}
 				sessionMutex.Unlock()
 
-				// 1. Tìm nhanh trong RAM (không tốn token, không lộ giá, tự gửi ảnh)
+				// 1. Nhận diện từ RAM: phản hồi tức thì, bảo mật giá, tự động gửi cụm ảnh từ Drive
 				if match := FindProductInMemory(userMsg); match != nil {
 					sessionMutex.Lock()
 					if match.LastProduct != nil {
@@ -115,15 +142,12 @@ func main() {
 					go metaSender.SendTextMessage(senderID, match.Message)
 
 					if match.PhotoURL != "" {
-						go func(link string, pName string) {
-							caption := fmt.Sprintf("📸 Hình ảnh thực tế lô %s tại kho:\n%s", pName, link)
-							metaSender.SendTextMessage(senderID, caption)
-						}(match.PhotoURL, match.LastProduct.TenSP)
+						go sendProductPhotos(metaSender, senderID, match.PhotoURL, match.LastProduct.TenSP)
 					}
 					continue
 				}
 
-				// 2. Chuyển sang AI để xử lý báo giá riêng sỉ/lẻ khi khách phản hồi nhu cầu
+				// 2. Chuyển sang AI để xử lý phân loại và báo giá riêng biệt (sỉ/lẻ)
 				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
 				if err != nil {
 					log.Printf("Gemini Error: %v", err)
@@ -137,8 +161,7 @@ func main() {
 						for _, code := range codes {
 							for _, p := range available {
 								if strings.EqualFold(p.MaSP, code) && p.FolderAnhID != "" {
-									caption := fmt.Sprintf("📸 Hình ảnh thực tế %s:\n%s", p.TenSP, p.FolderAnhID)
-									metaSender.SendTextMessage(senderID, caption)
+									sendProductPhotos(metaSender, senderID, p.FolderAnhID, p.TenSP)
 									break
 								}
 							}
