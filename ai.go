@@ -27,7 +27,6 @@ func NewMultiAIAdvisor(groqKey, geminiKey string) *MultiAIAdvisor {
 	}
 }
 
-// GenerateReply ưu tiên gọi Groq; nếu lỗi thì tự động fallback sang Gemini
 func (m *MultiAIAdvisor) GenerateReply(customerName, userMsg string, availableProducts []Product, pendingProd *Product) (*GeminiBotResponse, error) {
 	dataBytes, _ := json.Marshal(availableProducts)
 	pendingInfo := "Chưa có"
@@ -69,22 +68,22 @@ QUY TẮC BẢO MẬT GIÁ VÀ BÁO GIÁ:
    }
 `, customerName, pendingInfo, string(dataBytes))
 
-	// 1. Ưu tiên chạy Groq Llama 3.3
+	// 1. Thử gọi Groq qua model openai/gpt-oss-20b (tốc độ cao, LPU 1000 TPS)
 	if m.groqKey != "" {
 		res, err := m.callGroq(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Groq gặp sự cố (%v), tự động chuyển sang Gemini fallback...", err)
+		log.Printf("[AI] Groq gặp sự cố (%v), chuyển sang Gemini 3.5 Flash-Lite...", err)
 	}
 
-	// 2. Chuyển sang Gemini dự phòng nếu Groq lỗi hoặc hết quota
+	// 2. Chuyển sang Gemini thế hệ 3.5 Flash-Lite (hạn mức Free cao)
 	if m.geminiKey != "" {
 		res, err := m.callGemini(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Gemini fallback cũng gặp lỗi: %v", err)
+		log.Printf("[AI] Gemini fallback lỗi: %v", err)
 	}
 
 	return nil, fmt.Errorf("tất cả hệ thống AI đều bận")
@@ -96,7 +95,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		Content string `json:"content"`
 	}
 	payload := map[string]interface{}{
-		"model": "llama-3.3-70b-versatile",
+		"model": "openai/gpt-oss-20b",
 		"messages": []GroqMsg{
 			{Role: "system", Content: sysInst},
 			{Role: "user", Content: userMsg},
@@ -133,7 +132,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &data); err != nil || len(data.Choices) == 0 {
-		return nil, fmt.Errorf("lỗi đọc JSON từ Groq")
+		return nil, fmt.Errorf("lỗi parse JSON từ Groq")
 	}
 
 	var res GeminiBotResponse
@@ -152,7 +151,8 @@ func (m *MultiAIAdvisor) callGemini(sysInst, userMsg string) (*GeminiBotResponse
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-3.8-flash")
+	// Sử dụng gemini-3.5-flash-lite thay thế các model 2.x cũ
+	model := client.GenerativeModel("gemini-3.5-flash-lite")
 	model.ResponseMIMEType = "application/json"
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(sysInst)},
@@ -163,7 +163,7 @@ func (m *MultiAIAdvisor) callGemini(sysInst, userMsg string) (*GeminiBotResponse
 		return nil, err
 	}
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("không có candidate từ Gemini")
+		return nil, fmt.Errorf("không có nội dung từ Gemini")
 	}
 
 	rawText := ""
