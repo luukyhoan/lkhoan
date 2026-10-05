@@ -27,66 +27,81 @@ func NewMultiAIAdvisor(groqKey, geminiKey string) *MultiAIAdvisor {
 	}
 }
 
+// compactProduct rút gọn thông tin chỉ giữ lại các trường quan trọng để tiết kiệm token
+type CompactProduct struct {
+	MaSP       string `json:"ma"`
+	TenSP      string `json:"ten"`
+	QuyCach    string `json:"qc"`
+	GiaLeThung string `json:"gia_le"`
+	GiaSiLo    string `json:"gia_si"`
+}
+
 func (m *MultiAIAdvisor) GenerateReply(customerName, userMsg string, availableProducts []Product, pendingProd *Product) (*GeminiBotResponse, error) {
-	dataBytes, _ := json.Marshal(availableProducts)
-	pendingInfo := "Chưa có"
+	// Lọc gọn danh mục: nếu có sản phẩm đang nói dở, ưu tiên tập trung vào nó để tiết kiệm token
+	var compactList []CompactProduct
 	if pendingProd != nil && pendingProd.MaSP != "" {
-		pendingInfo = fmt.Sprintf("Mã: %s | Tên: %s | Giá lẻ: %s | Giá sỉ: %s | Quy cách: %s",
-			pendingProd.MaSP, pendingProd.TenSP, pendingProd.GiaLeThung, pendingProd.GiaSiLo, pendingProd.QuyCach)
+		compactList = append(compactList, CompactProduct{
+			MaSP:       pendingProd.MaSP,
+			TenSP:      pendingProd.TenSP,
+			QuyCach:    pendingProd.QuyCach,
+			GiaLeThung: pendingProd.GiaLeThung,
+			GiaSiLo:    pendingProd.GiaSiLo,
+		})
+	} else {
+		// Nếu chưa có, chỉ lấy tối đa 10 sản phẩm tiêu biểu
+		limit := len(availableProducts)
+		if limit > 10 {
+			limit = 10
+		}
+		for i := 0; i < limit; i++ {
+			p := availableProducts[i]
+			compactList = append(compactList, CompactProduct{
+				MaSP:       p.MaSP,
+				TenSP:      p.TenSP,
+				QuyCach:    p.QuyCach,
+				GiaLeThung: p.GiaLeThung,
+				GiaSiLo:    p.GiaSiLo,
+			})
+		}
 	}
 
-	systemInstruction := fmt.Sprintf(`
-Bạn là chuyên viên tư vấn bán hàng của Tổng kho trái cây nhập khẩu cao cấp HP FRUIT (Bồ Đề - Long Biên).
-Khách hàng: "%s".
-Sản phẩm đang trao đổi: [%s].
+	dataBytes, _ := json.Marshal(compactList)
 
-Dữ liệu kho hàng:
-%s
+	pendingInfo := "Chưa có"
+	if pendingProd != nil && pendingProd.MaSP != "" {
+		pendingInfo = fmt.Sprintf("Mã: %s | Tên: %s | Giá lẻ: %s | Giá sỉ: %s",
+			pendingProd.MaSP, pendingProd.TenSP, pendingProd.GiaLeThung, pendingProd.GiaSiLo)
+	}
 
-QUY TẮC BẢO MẬT GIÁ VÀ BÁO GIÁ:
+	systemInstruction := fmt.Sprintf(`Bạn là nhân viên tư vấn bán hàng của Tổng kho trái cây nhập khẩu HP FRUIT (Bồ Đề - Long Biên).
+Khách hàng: "%s". Sản phẩm quan tâm: [%s].
+Bảng giá: %s
 
-1. GIAI ĐOẠN 1 - KHI CHƯA BIẾT RÕ NHU CẦU:
-   - TUYỆT ĐỐI KHÔNG BÁO BẤT KỲ MỨC GIÁ NÀO (KHÔNG báo giá lẻ, KHÔNG báo giá sỉ).
-   - Chỉ giới thiệu nguồn gốc, độ tươi ngon, quy cách thùng và chất lượng chuẩn cao cấp.
-   - Kết thúc bằng một câu hỏi gợi mở thanh lịch để phân loại nhu cầu:
-     "Dạ bên em có chính sách giá riêng cho khách dùng gia đình và khách lấy sỉ số lượng cho cửa hàng/đại lý. Không biết Anh/Chị dự tính lấy số lượng dùng thử hay lấy cho shop để em áp dụng mức giá tốt nhất cho mình ạ?"
+QUY TẮC:
+1. NẾU CHƯA BIẾT NHU CẦU: Tuyệt đối KHÔNG báo giá lẻ/sỉ. Giới thiệu chất lượng và hỏi khách mua dùng gia đình hay kinh doanh shop để áp dụng giá tốt.
+2. NẾU KHÁCH LẺ (mua ăn/biếu): Chỉ báo GIÁ LẺ THÙNG (gia_le). Không nhắc giá sỉ. Đưa mã SP vào selected_codes.
+3. NẾU KHÁCH SỈ (lấy số lượng/kinh doanh): Chỉ báo GIÁ SỈ LÔ (gia_si). Không nhắc giá lẻ. Đưa mã SP vào selected_codes.
+4. Trả về JSON: {"message": "nội dung trả lời", "selected_codes": ["MÃ"]}`, customerName, pendingInfo, string(dataBytes))
 
-2. GIAI ĐOẠN 2 - KHI KHÁCH ĐÃ NÊU RÕ NHU CẦU:
-   - Khách lẻ (mua gia đình, ăn thử, biếu tặng):
-     + CHỈ BÁO DUY NHẤT GIÁ LẺ THÙNG (cột Gia_Le_Thung). TUYỆT ĐỐI KHÔNG nhắc đến giá sỉ.
-     + Đưa mã sản phẩm vào "selected_codes".
-   - Khách sỉ (lấy số lượng lớn, đại lý, shop):
-     + CHỈ BÁO DUY NHẤT GIÁ SỈ LÔ (cột Gia_Si_Lo). TUYỆT ĐỐI KHÔNG nhắc đến giá lẻ.
-     + Cam kết chất lượng cont/bay, bao cuống tươi, hỗ trợ gửi chành xe.
-     + Đưa mã sản phẩm vào "selected_codes".
-
-3. XƯNG HÔ: Lịch thiệp, xưng "em", gọi khách là "Anh/Chị".
-4. ĐỊNH DẠNG JSON TRẢ VỀ:
-   {
-     "message": "Nội dung phản hồi khách hàng",
-     "selected_codes": ["MÃ_SP"]
-   }
-`, customerName, pendingInfo, string(dataBytes))
-
-	// 1. Thử gọi Groq qua model openai/gpt-oss-20b (tốc độ cao, LPU 1000 TPS)
+	// 1. Chạy Groq với max_tokens=300 để không vượt giới hạn TPM
 	if m.groqKey != "" {
 		res, err := m.callGroq(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Groq gặp sự cố (%v), chuyển sang Gemini 3.5 Flash-Lite...", err)
+		log.Printf("[AI] Groq gặp sự cố (%v), chuyển sang Gemini...", err)
 	}
 
-	// 2. Chuyển sang Gemini thế hệ 3.5 Flash-Lite (hạn mức Free cao)
+	// 2. Chuyển sang Gemini dự phòng nếu Groq lỗi
 	if m.geminiKey != "" {
 		res, err := m.callGemini(systemInstruction, userMsg)
 		if err == nil {
 			return res, nil
 		}
-		log.Printf("[AI] Gemini fallback lỗi: %v", err)
+		log.Printf("[AI] Gemini cũng gặp sự cố: %v", err)
 	}
 
-	return nil, fmt.Errorf("tất cả hệ thống AI đều bận")
+	return nil, fmt.Errorf("hệ thống AI đang bận")
 }
 
 func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, error) {
@@ -94,6 +109,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
+
 	payload := map[string]interface{}{
 		"model": "openai/gpt-oss-20b",
 		"messages": []GroqMsg{
@@ -102,6 +118,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		},
 		"response_format": map[string]string{"type": "json_object"},
 		"temperature":    0.2,
+		"max_tokens":     350, // Giới hạn token đầu ra để kiểm soát mức TPM
 	}
 
 	b, _ := json.Marshal(payload)
@@ -132,7 +149,7 @@ func (m *MultiAIAdvisor) callGroq(sysInst, userMsg string) (*GeminiBotResponse, 
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &data); err != nil || len(data.Choices) == 0 {
-		return nil, fmt.Errorf("lỗi parse JSON từ Groq")
+		return nil, fmt.Errorf("lỗi đọc JSON từ Groq")
 	}
 
 	var res GeminiBotResponse
@@ -151,8 +168,7 @@ func (m *MultiAIAdvisor) callGemini(sysInst, userMsg string) (*GeminiBotResponse
 	}
 	defer client.Close()
 
-	// Sử dụng gemini-3.5-flash-lite thay thế các model 2.x cũ
-	model := client.GenerativeModel("gemini-3.5-flash-lite")
+	model := client.GenerativeModel("gemini-2.5-flash")
 	model.ResponseMIMEType = "application/json"
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(sysInst)},
@@ -163,7 +179,7 @@ func (m *MultiAIAdvisor) callGemini(sysInst, userMsg string) (*GeminiBotResponse
 		return nil, err
 	}
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("không có nội dung từ Gemini")
+		return nil, fmt.Errorf("không có phản hồi từ Gemini")
 	}
 
 	rawText := ""
