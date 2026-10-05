@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +14,27 @@ var (
 	userSessions = make(map[string]*UserSession)
 	sessionMutex sync.Mutex
 )
+
+// WebhookCallback cấu trúc nhận webhook từ Meta
+type WebhookCallback struct {
+	Object string `json:"object"`
+	Entry  []struct {
+		ID        string `json:"id"`
+		Time      int64  `json:"time"`
+		Messaging []struct {
+			Sender struct {
+				ID string `json:"id"`
+			} `json:"sender"`
+			Recipient struct {
+				ID string `json:"id"`
+			} `json:"recipient"`
+			Message struct {
+				Mid  string `json:"mid"`
+				Text string `json:"text"`
+			} `json:"message"`
+		} `json:"messaging"`
+	} `json:"entry"`
+}
 
 func main() {
 	_ = godotenv.Load()
@@ -34,6 +54,7 @@ func main() {
 
 	r := gin.Default()
 
+	// 1. Endpoint xác thực Webhook với Meta (GET)
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
 		token := c.Query("hub.verify_token")
@@ -43,22 +64,27 @@ func main() {
 			c.String(http.StatusOK, challenge)
 			return
 		}
-		c.String(http.StatusForbidden, "Xác minh thất bại")
+		c.String(http.StatusForbidden, "Forbidden")
 	})
 
+	// 2. Endpoint tiếp nhận tin nhắn từ Facebook Messenger (POST)
 	r.POST("/webhook", func(c *gin.Context) {
-		var req MetaCallback
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.Status(http.StatusBadRequest)
+		var callback WebhookCallback
+		if err := c.ShouldBindJSON(&callback); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.Status(http.StatusOK)
+		c.JSON(http.StatusOK, gin.H{"status": "EVENT_RECEIVED"})
 
-		for _, entry := range req.Entry {
-			for _, messaging := range entry.Messaging {
-				senderID := messaging.Sender.ID
-				userMsg := messaging.Message.Text
+		if callback.Object != "page" {
+			return
+		}
+
+		for _, entry := range callback.Entry {
+			for _, event := range entry.Messaging {
+				senderID := event.Sender.ID
+				userMsg := event.Message.Text
 
 				if userMsg == "" {
 					continue
@@ -70,17 +96,23 @@ func main() {
 				// Lấy sản phẩm khách đang trao đổi dở dang trước đó
 				sessionMutex.Lock()
 				sess, exists := userSessions[senderID]
+				if !exists {
+					sess = &UserSession{}
+					userSessions[senderID] = sess
+				}
 				var pendingProd *Product
-				if exists && sess.LastProduct.MaSP != "" {
+				if sess.LastProduct.MaSP != "" {
 					pendingProd = &sess.LastProduct
 				}
 				sessionMutex.Unlock()
-				// Kiểm tra nhanh trong RAM nếu khớp tên sản phẩm
+
+				// Tối ưu: Kiểm tra nhanh trong RAM nếu khớp tên sản phẩm
 				if quickReply := FindProductInMemory(userMsg); quickReply != "" {
-				go metaSender.SendTextMessage(senderID, quickReply)
-				continue
+					go metaSender.SendTextMessage(senderID, quickReply)
+					continue
 				}
-				// Gọi AI với đầy đủ ngữ cảnh câu trước
+
+				// Nếu không khớp từ khóa rõ ràng, gọi AI Gemini tư vấn
 				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
 				if err != nil {
 					log.Printf("Gemini Error: %v", err)
@@ -89,31 +121,6 @@ func main() {
 
 				// Phản hồi tin nhắn
 				go metaSender.SendTextMessage(senderID, aiRes.Message)
-
-				// Cập nhật lại sản phẩm vào phiên làm việc của khách
-				for _, code := range aiRes.SelectedCodes {
-					for _, p := range available {
-						if p.MaSP == code {
-							sessionMutex.Lock()
-							userSessions[senderID] = &UserSession{
-								LastProduct: p,
-							}
-							sessionMutex.Unlock()
-
-							// Chỉ gửi album ảnh nếu lần đầu nhắc tới sản phẩm
-							if pendingProd == nil || pendingProd.MaSP != p.MaSP {
-								if p.FolderAnhID != "" {
-									go func(prod Product) {
-										imgLinks := metaSender.GetImageLinksFromDrive(prod.FolderAnhID)
-										if len(imgLinks) > 0 {
-											metaSender.SendPhotoGrid(senderID, imgLinks)
-										}
-									}(p)
-								}
-							}
-						}
-					}
-				}
 			}
 		}
 	})
@@ -122,6 +129,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	fmt.Printf("Server đang chạy trên cổng %s...\n", port)
-	r.Run(":" + port)
+
+	log.Printf("Server đang chạy trên cổng %s...", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("Không thể khởi động server: %v", err)
+	}
 }
