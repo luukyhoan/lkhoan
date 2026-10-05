@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"strings"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -14,92 +14,93 @@ type AIAdvisor struct {
 	apiKey string
 }
 
-func (ai *AIAdvisor) GenerateReply(customerName, userMessage string, availableProducts []Product, pendingProd *Product) (*GeminiBotResponse, error) {
+func (a *AIAdvisor) GenerateReply(customerName, userMsg string, availableProducts []Product, pendingProd *Product) (*GeminiBotResponse, error) {
 	ctx := context.Background()
-
-	apiKey := ai.apiKey
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
-	}
-
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	client, err := genai.NewClient(ctx, option.WithAPIKey(a.apiKey))
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-3.8-flash")
+	model := client.GenerativeModel("gemini-1.5-flash")
 	model.ResponseMIMEType = "application/json"
 
 	dataBytes, _ := json.Marshal(availableProducts)
 
 	pendingInfo := "Không có"
 	if pendingProd != nil && pendingProd.MaSP != "" {
-		pendingInfo = fmt.Sprintf("Mã: %s | Tên: %s | Giá lẻ/thùng: %s | Giá sỉ/lô: %s | Quy cách: %s",
+		pendingInfo = fmt.Sprintf("Mã: %s | Tên: %s | Giá lẻ: %s | Giá sỉ: %s | Quy cách: %s",
 			pendingProd.MaSP, pendingProd.TenSP, pendingProd.GiaLeThung, pendingProd.GiaSiLo, pendingProd.QuyCach)
 	}
 
 	systemInstruction := fmt.Sprintf(`
-Bạn là chuyên viên tư vấn bán hàng của Tổng kho trái cây nhập khẩu cao cấp HP FRUIT (Bồ Đề - Long Biên).
-Khách hàng: "%s".
+Bạn là chuyên viên tư vấn bán lẻ và bán buôn của Tổng kho trái cây nhập khẩu HP FRUIT (Bồ Đề - Long Biên).
+Tên khách hàng: "%s".
 Sản phẩm đang trao đổi dở dang trước đó: [%s].
 
-Dữ liệu kho hàng (gồm mã, giá lẻ thùng, giá sỉ lô, tình trạng):
+Dữ liệu kho hàng (gồm mã, tên, giá lẻ thùng, giá sỉ lô, tồn kho, quy cách):
 %s
 
-QUY TẮC BÁO GIÁ KHI ĐÃ PHÂN LOẠI KHÁCH HÀNG:
+QUY TẮC BÁN HÀNG VÀ BÁO GIÁ:
 
-1. KHI KHÁCH LÀ KHÁCH LẺ (mua dùng gia đình, ăn thử, biếu tặng):
-   - CHỈ BÁO GIÁ LẺ THÙNG (cột Gia_Le_Thung), TUYỆT ĐỐI không nhắc lại giá sỉ để tránh rối thông tin.
-   - Tư vấn trang nhã: nêu rõ xuất xứ, độ ngọt đậm, quả chắc giòn, quy cách đóng gói đẹp thích hợp thưởng thức hoặc làm quà biếu.
-   - Thêm câu thông báo gửi ảnh: "Dạ em gửi Anh/Chị xem qua hình ảnh thực tế từng quả và quy cách thùng mới về tại kho bên em ạ."
-   - Thêm mã sản phẩm vào mảng "selected_codes".
-   - Kết thúc bằng câu hỏi địa chỉ hoặc thời gian nhận hàng thuận tiện cho Anh/Chị.
+1. PHONG THÁI & XƯNG HÔ:
+   - Xưng "em", gọi khách là "Anh/Chị" trang nhã, lịch thiệp. Không dùng từ ngữ xô bồ chợ búa.
+   - Không lặp lại tên khách nhiều lần.
 
-2. KHI KHÁCH LÀ KHÁCH SỈ (đại lý, cửa hàng, bốc số lượng, kinh doanh):
-   - CHỈ BÁO GIÁ SỈ THEO LÔ (cột Gia_Si_Lo).
-   - Tư vấn chuyên nghiệp: cam kết chất lượng chuẩn bay/cont, tình trạng cuống xanh tươi, hỗ trợ kiểm hàng trước khi nhận, chính sách gửi chành xe/bảo quản lạnh đi tỉnh.
-   - Thêm câu thông báo gửi ảnh: "Dạ em gửi Anh/Chị hình ảnh thực tế thùng hàng, tem mác và chất lượng hàng đợt này bên em ạ."
-   - Thêm mã sản phẩm vào mảng "selected_codes".
-   - Kết thúc: "Anh/Chị dự tính lấy đợt này khoảng bao nhiêu thùng để em lên đơn và sắp xếp xe chuyển sớm nhất cho mình ạ?"
+2. KHI KHÁCH CHƯA PHÂN LOẠI (Hỏi chung chung hoặc mới hỏi giá):
+   - Nêu tình trạng sẵn hàng, xuất xứ, quy cách và báo cả 2 mức: Giá lẻ thùng và Giá sỉ lô.
+   - Hỏi khéo: "Dạ Anh/Chị đang tính lấy dùng gia đình, làm quà biếu hay lấy số lượng cho cửa hàng/đại lý để em áp dụng chính sách giá tốt nhất ạ?"
 
-3. ĐỊNH DẠNG JSON TRẢ VỀ BẮT BUỘC:
+3. KHI KHÁCH LÀ KHÁCH LẺ (mua dùng gia đình, ăn thử, biếu tặng):
+   - CHỈ báo duy nhất Giá Lẻ Thùng (Gia_Le_Thung). Tuyệt đối không nhắc lại giá sỉ.
+   - Tư vấn độ giòn ngọt, vỏ cuống tươi đẹp. Thêm thông báo gửi hình ảnh thùng/quả thực tế tại kho.
+   - Thêm mã sản phẩm (MaSP) vào mảng "selected_codes".
+   - Hỏi thông tin địa chỉ hoặc thời gian nhận hàng thuận tiện.
+
+4. KHI KHÁCH LÀ KHÁCH SỈ (lấy số lượng lớn, đại lý, shop hoa quả):
+   - CHỈ báo duy nhất Giá Sỉ Lô (Gia_Si_Lo).
+   - Cam kết hàng chuẩn bay/cont, hỗ trợ kiểm hàng trước khi nhận, bảo quản lạnh gửi xe các tỉnh.
+   - Thêm mã sản phẩm (MaSP) vào mảng "selected_codes".
+   - Hỏi số lượng thùng dự tính để lên đơn và chuẩn bị xe giao sớm.
+
+5. ĐỊNH DẠNG JSON BẮT BUỘC:
+   Trình bày kết quả theo đúng cấu trúc:
    {
-     "message": "Nội dung văn bản tư vấn và báo giá chuẩn xác",
-     "selected_codes": ["MÃ_SẢN_PHẨM"]
+     "message": "Nội dung tin nhắn gửi khách",
+     "selected_codes": ["MÃ_SP_1"]
    }
 `, customerName, pendingInfo, string(dataBytes))
-
-Định dạng JSON trả về:
-{
-  "message": "Nội dung trả lời khách...",
-  "selected_codes": ["MA_SP_1"]
-}
-`, customerName, pendingInfo, string(dataBytes), pendingInfo, customerName)
 
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(systemInstruction)},
 	}
 
-	resp, err := model.GenerateContent(ctx, genai.Text(userMessage))
+	resp, err := model.GenerateContent(ctx, genai.Text(userMsg))
 	if err != nil {
 		return nil, err
 	}
 
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("không nhận được phản hồi từ Gemini")
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("không có phản hồi từ Gemini")
 	}
 
-	part := resp.Candidates[0].Content.Parts[0]
-	textPart, ok := part.(genai.Text)
-	if !ok {
-		return nil, fmt.Errorf("định dạng phản hồi không hợp lệ")
+	rawText := ""
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if txt, ok := part.(genai.Text); ok {
+			rawText += string(txt)
+		}
 	}
 
-	var botRes GeminiBotResponse
-	if err := json.Unmarshal([]byte(textPart), &botRes); err != nil {
-		return nil, fmt.Errorf("lỗi parse JSON Gemini: %v", err)
+	rawText = strings.TrimSpace(rawText)
+	rawText = strings.TrimPrefix(rawText, "```json")
+	rawText = strings.TrimPrefix(rawText, "```")
+	rawText = strings.TrimSuffix(rawText, "```")
+	rawText = strings.TrimSpace(rawText)
+
+	var result GeminiBotResponse
+	if err := json.Unmarshal([]byte(rawText), &result); err != nil {
+		result.Message = rawText
 	}
 
-	return &botRes, nil
+	return &result, nil
 }
