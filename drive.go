@@ -69,7 +69,7 @@ func (d *DriveHelper) GetImageFilesFromFolder(folderURL string) []DriveImageFile
 	q := fmt.Sprintf("'%s' in parents and mimeType contains 'image/' and trashed = false", folderID)
 	r, err := d.srv.Files.List().Q(q).Fields("files(id, name)").PageSize(4).Do()
 	if err != nil {
-		log.Printf("[Drive] Lỗi đọc danh sách file folder %s: %v", folderID, err)
+		log.Printf("[Drive] Lỗi đọc folder %s: %v", folderID, err)
 		return nil
 	}
 

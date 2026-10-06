@@ -33,7 +33,6 @@ func normalizeText(s string) string {
 	return replacer.Replace(s)
 }
 
-// resolveTasteAndTag ưu tiên lấy từ Google Sheet (Cột I & J), nếu trống mới dùng câu mặc định
 func resolveTasteAndTag(p *Product) (string, string) {
 	tag := p.HinhThuc
 	if tag == "" {
@@ -101,7 +100,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 1. Phản hồi nhu cầu sỉ/lẻ cho quả đã chọn
+	// 1. Phản hồi nhu cầu sỉ/lẻ cho sản phẩm khách đang trao đổi
 	if sess != nil && sess.LastProduct.MaSP != "" && (isRetail || isWholesale) {
 		p := sess.LastProduct
 		tag, taste := resolveTasteAndTag(&p)
@@ -199,7 +198,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: matchedProd, ShouldSendImg: true}
 	}
 
-	// 3. Chào hỏi mặc định
+	// 3. Phản hồi chào hỏi mặc định
 	return &BotReply{
 		Message: "Dạ Tổng kho trái cây nhập khẩu & Nông sản HP FRUIT (Bồ Đề - Long Biên) xin chào Anh/Chị ạ! Bên em sẵn rất nhiều mã hoa quả chuẩn hàng bay, hàng cont và nông sản sạch tươi ngon mỗi ngày. Anh/Chị đang quan tâm dòng quả nào để em gửi hình ảnh và báo giá chi tiết ạ?",
 		Product: nil,

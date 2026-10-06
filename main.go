@@ -17,7 +17,6 @@ var (
 	userSessions = make(map[string]*UserSession)
 	sessionMutex sync.Mutex
 
-	// Cache lưu các message ID (mid) đã xử lý để tránh Meta webhook retry trùng lặp
 	processedMIDs = make(map[string]time.Time)
 	midMutex      sync.Mutex
 )
@@ -35,9 +34,9 @@ type WebhookCallback struct {
 				ID string `json:"id"`
 			} `json:"recipient"`
 			Message struct {
-				Mid  string `json:"mid"`
-				Text string `json:"text"`
-				IsEcho bool `json:"is_echo"`
+				Mid    string `json:"mid"`
+				Text   string `json:"text"`
+				IsEcho bool   `json:"is_echo"`
 			} `json:"message"`
 		} `json:"messaging"`
 	} `json:"entry"`
@@ -50,7 +49,6 @@ func isDuplicateMessage(mid string) bool {
 	midMutex.Lock()
 	defer midMutex.Unlock()
 
-	// Dọn dẹp các mid cũ quá 5 phút
 	now := time.Now()
 	for k, t := range processedMIDs {
 		if now.Sub(t) > 5*time.Minute {
@@ -120,7 +118,6 @@ func main() {
 			return
 		}
 
-		// Trả ngay 200 OK cho Meta lập tức để không bị retry
 		c.JSON(http.StatusOK, gin.H{"status": "EVENT_RECEIVED"})
 
 		if callback.Object != "page" {
@@ -129,7 +126,6 @@ func main() {
 
 		for _, entry := range callback.Entry {
 			for _, event := range entry.Messaging {
-				// Bỏ qua tin nhắn do chính page gửi đi (echo)
 				if event.Message.IsEcho {
 					continue
 				}
@@ -142,7 +138,6 @@ func main() {
 					continue
 				}
 
-				// Chặn trùng lặp tin nhắn
 				if isDuplicateMessage(mid) {
 					log.Printf("[Webhook] Bỏ qua tin nhắn trùng mid: %s", mid)
 					continue

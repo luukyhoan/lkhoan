@@ -20,33 +20,6 @@ func NewMetaSender() *MetaSender {
 	}
 }
 
-func (m *MetaSender) GetUserName(senderID string) string {
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/%s?fields=first_name,last_name,name&access_token=%s", senderID, m.PageAccessToken)
-	resp, err := http.Get(url)
-	if err != nil {
-		return "Anh/Chị"
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "Anh/Chị"
-	}
-
-	var data struct {
-		FirstName string `json:"first_name"`
-		Name      string `json:"name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err == nil {
-		if data.FirstName != "" {
-			return data.FirstName
-		}
-		if data.Name != "" {
-			return data.Name
-		}
-	}
-	return "Anh/Chị"
-}
-
 func (m *MetaSender) SendTextMessage(recipientID, messageText string) error {
 	payload := map[string]interface{}{
 		"recipient": map[string]string{"id": recipientID},
