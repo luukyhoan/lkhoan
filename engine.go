@@ -85,6 +85,8 @@ func resolveTaste(p *Product) string {
 			taste = "Cơm dày giòn đanh, độ đường cao, ăn rất mát và thơm."
 		case dm == "quyt" || strings.Contains(n, "quyt"):
 			taste = "Tép căng mọng nước, vị ngọt đậm thơm lừng chuẩn hàng tuyển."
+		case dm == "cam" || strings.Contains(n, "cam"):
+			taste = "Tép mọng ngập nước, vị ngọt thanh dịu mát, vỏ mỏng thơm ngát."
 		case strings.Contains(dm, "nho") || strings.Contains(n, "nho"):
 			taste = "Trái đanh cứng, chùm khít cuống xanh, vị ngọt thơm giòn tan."
 		default:
@@ -108,23 +110,6 @@ func buildCategorySummary(categoryName, label, icon string, available []Product)
 
 	return fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã size nào để em gửi ảnh chi tiết và báo giá ạ?",
 		label, strings.Join(items, "\n"))
-}
-
-func buildHinhThucSummary(keyword, title, icon string, available []Product) string {
-	var items []string
-	for _, p := range available {
-		normHT := normalizeText(p.HinhThuc)
-		if strings.Contains(normHT, keyword) && p.SoLuong > 0 {
-			items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
-		}
-	}
-
-	if len(items) == 0 {
-		return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang tạm hết các mã %s sẵn kho, hàng đợt tới về em báo mình ngay nhé ạ!", title)
-	}
-
-	return fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nAnh/Chị quan tâm mã nào để em gửi ảnh thực tế và báo giá chi tiết ạ?",
-		title, strings.Join(items, "\n"))
 }
 
 func findAllMatchingSubline(keyword string, available []Product) []Product {
@@ -159,9 +144,6 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 		if strings.Contains(norm, pNorm) {
 			score += 80
 		}
-		if pCat != "" && strings.Contains(norm, pCat) {
-			score += 20
-		}
 
 		pWords := strings.Fields(pNorm)
 		for _, w := range words {
@@ -170,13 +152,14 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			}
 			for _, pw := range pWords {
 				if w == pw {
-					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
+					// Bỏ qua các từ chung chung như: cam, tao, nho, gia, ban... khi tính điểm đích danh
+					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
 						score += 40
-					} else {
-						score += 10
 					}
 				} else if len([]rune(w)) >= 3 && strings.HasPrefix(pw, w) {
-					score += 35
+					if w != "cam" && w != "tao" && w != "nho" {
+						score += 35
+					}
 				}
 			}
 		}
@@ -194,7 +177,8 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 		}
 	}
 
-	if highestScore >= 30 {
+	// Phải có từ định danh riêng (score >= 35) mới được coi là hỏi đích danh 1 mã cụ thể
+	if highestScore >= 35 {
 		return bestProd
 	}
 	return nil
@@ -231,7 +215,71 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 
 	isAskingPrice := strings.Contains(norm, "gia") || strings.Contains(norm, "bao nhieu") || strings.Contains(norm, "nhieu tien") || strings.Contains(norm, "xin gia")
 
-	// 1. NẾU KHÁCH HỎI TÊN CẢ DÒNG (ENVY, DAZZLE, QUEEN...) MÀ CHƯA CHỈ SIZE CỤ THỂ
+	// 1. NẾU KHÁCH ĐANG CHỐT SỈ/LẺ CHO SẢN PHẨM TRONG PHIÊN
+	if sess != nil && sess.LastProduct.MaSP != "" && (isRetail || isWholesale) {
+		p := sess.LastProduct
+		taste := resolveTaste(&p)
+
+		if isRetail {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá lẻ thùng: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
+				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
+			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+		}
+
+		if isWholesale {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá sỉ lô: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?",
+				p.TenSP, p.QuyCach, p.GiaSiLo, taste)
+			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+		}
+	}
+
+	// 2. TÌM KIẾM ĐÍCH DANH MÃ CỤ THỂ (Có tên riêng như "cam úc", "nam phi", "kiểng", "envy sz30"...)
+	matchedProd := findSpecificProduct(userMsg, available)
+	if matchedProd != nil {
+		sess.LastProduct = *matchedProd
+		p := matchedProd
+		taste := resolveTaste(p)
+
+		if isRetail {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá lẻ thùng: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
+				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
+			return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
+		}
+
+		if isWholesale {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá sỉ lô: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?",
+				p.TenSP, p.QuyCach, p.GiaSiLo, taste)
+			return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
+		}
+
+		msg := fmt.Sprintf("Dạ bên em sẵn mã %s hàng về tươi mới mỗi ngày ạ.\n"+
+			"🍇 Hương vị / Chất ăn: %s\n\n"+
+			"Bên em có chính sách giá riêng cho khách ăn gia đình và khách lấy sỉ cho shop/đại lý. Không biết Anh/Chị dự tính lấy dùng gia đình hay lấy cho shop để em báo giá tốt nhất cho mình ạ?",
+			p.TenSP, taste)
+		return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
+	}
+
+	// 3. NẾU KHÁCH HỎI CẢ DÒNG CON (ENVY, DAZZLE, QUEEN, MIZUKI...) MÀ CHƯA KÈM SIZE
 	sublines := []struct {
 		kw    string
 		label string
@@ -246,103 +294,25 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 
 	for _, sub := range sublines {
 		if strings.Contains(norm, sub.kw) {
-			// Kiểm tra khách có gõ kèm size hay mã số cụ thể không
-			hasSpecificSize := false
-			for _, w := range strings.Fields(norm) {
-				if strings.HasPrefix(w, "s") || strings.HasPrefix(w, "sz") || strings.Contains(w, "30") || strings.Contains(w, "70") || strings.Contains(w, "80") || strings.Contains(w, "90") {
-					hasSpecificSize = true
-					break
+			prods := findAllMatchingSubline(sub.kw, available)
+			if len(prods) > 0 {
+				var lines []string
+				for _, p := range prods {
+					lines = append(lines, fmt.Sprintf("%s %s (%s)", sub.icon, p.TenSP, p.QuyCach))
 				}
-			}
-
-			// Nếu không hỏi size cụ thể và có từ 2 mã đang còn hàng -> Gửi danh sách gọn đúng chuẩn mẫu bạn yêu cầu
-			if !hasSpecificSize {
-				prods := findAllMatchingSubline(sub.kw, available)
-				if len(prods) > 1 {
-					var lines []string
-					for _, p := range prods {
-						lines = append(lines, fmt.Sprintf("%s %s (%s)", sub.icon, p.TenSP, p.QuyCach))
-					}
-					msg := fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã size nào để em gửi ảnh chi tiết và báo giá ạ?",
-						sub.label, strings.Join(lines, "\n"))
-					return &BotReply{Message: msg, Product: nil, ShouldSendImg: false}
-				}
+				msg := fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã size nào để em gửi ảnh chi tiết và báo giá ạ?",
+					sub.label, strings.Join(lines, "\n"))
+				return &BotReply{Message: msg, Product: nil, ShouldSendImg: false}
 			}
 		}
 	}
 
-	// 2. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM KHÁCH CHỌN
-	matchedProd := findSpecificProduct(userMsg, available)
-	if matchedProd != nil {
-		sess.LastProduct = *matchedProd
-	}
-
-	// 3. NẾU TRONG PHIÊN ĐÃ CÓ SẢN PHẨM ĐANG TRAO ĐỔI
-	if sess != nil && sess.LastProduct.MaSP != "" {
-		p := sess.LastProduct
-		taste := resolveTaste(&p)
-
-		// 3.1. Khách mua lẻ / gia đình
-		if isRetail {
-			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
-				"✨ Sản phẩm: %s\n"+
-				"📦 Quy cách: %s\n"+
-				"💰 Giá lẻ thùng: %s\n"+
-				"🍇 Hương vị / Chất ăn: %s\n\n"+
-				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
-				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
-
-			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
-		}
-
-		// 3.2. Khách mua sỉ / shop
-		if isWholesale {
-			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
-				"✨ Sản phẩm: %s\n"+
-				"📦 Quy cách: %s\n"+
-				"💰 Giá sỉ lô: %s\n"+
-				"🍇 Hương vị / Chất ăn: %s\n\n"+
-				"Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?",
-				p.TenSP, p.QuyCach, p.GiaSiLo, taste)
-
-			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
-		}
-
-		// 3.3. Khách hỏi đích danh hoặc hỏi dồn giá: Đưa chất ăn và phân loại tệp khách
-		if matchedProd != nil || isAskingPrice {
-			msg := fmt.Sprintf("Dạ bên em sẵn mã %s hàng về tươi mới mỗi ngày ạ.\n"+
-				"🍇 Hương vị / Chất ăn: %s\n\n"+
-				"Bên em có chính sách giá riêng cho khách ăn gia đình và khách lấy sỉ cho shop/đại lý. Không biết Anh/Chị dự tính lấy dùng gia đình hay lấy cho shop để em báo giá tốt nhất cho mình ạ?",
-				p.TenSP, taste)
-
-			shouldImg := (matchedProd != nil)
-			return &BotReply{Message: msg, Product: &p, ShouldSendImg: shouldImg}
-		}
-	}
-
-	// 4. LỌC THEO HÌNH THỨC (CỘT I TRÊN SHEET)
-	if strings.Contains(norm, "hang bay") || strings.Contains(norm, "di bay") || strings.Contains(norm, "air") {
-		return &BotReply{Message: buildHinhThucSummary("bay", "Hàng Bay (Air Cargo)", "✈️", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "hang cont") || strings.Contains(norm, "di cont") {
-		return &BotReply{Message: buildHinhThucSummary("cont", "Hàng Cont Lạnh", "🚢", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "nong san") || strings.Contains(norm, "hang viet") || strings.Contains(norm, "viet nam") {
-		return &BotReply{Message: buildHinhThucSummary("viet", "Nông Sản Việt Nam", "🌾", available), Product: nil, ShouldSendImg: false}
-	}
-
-	// 5. LỌC THEO DANH MỤC LỚN (CỘT C TRÊN SHEET)
+	// 4. LỌC TOÀN BỘ THEO DANH MỤC LỚN (CỘT C TRÊN SHEET)
 	if strings.Contains(norm, "hong tao") {
 		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "tao") {
 		return &BotReply{Message: buildCategorySummary("tao", "Táo", "🍎", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "nho sua") {
-		return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", "🍇", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "nho") {
-		return &BotReply{Message: buildCategorySummary("nho", "Nho", "🍇", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "cam") {
 		return &BotReply{Message: buildCategorySummary("cam", "Cam", "🍊", available), Product: nil, ShouldSendImg: false}
@@ -350,11 +320,34 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	if strings.Contains(norm, "quyt") {
 		return &BotReply{Message: buildCategorySummary("quyt", "Quýt", "🍊", available), Product: nil, ShouldSendImg: false}
 	}
+	if strings.Contains(norm, "nho sua") {
+		return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", "🍇", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "nho") {
+		return &BotReply{Message: buildCategorySummary("nho", "Nho", "🍇", available), Product: nil, ShouldSendImg: false}
+	}
 	if strings.Contains(norm, "dua") {
 		return &BotReply{Message: buildCategorySummary("dua", "Dưa", "🍈", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "kiwi") {
 		return &BotReply{Message: buildCategorySummary("kiwi", "Kiwi", "🥝", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "man") {
+		return &BotReply{Message: buildCategorySummary("man", "Mận", "🍑", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "viet quat") {
+		return &BotReply{Message: buildCategorySummary("viet_quat", "Việt Quất", "🫐", available), Product: nil, ShouldSendImg: false}
+	}
+
+	// 5. NẾU KHÁCH CHỈ HỎI DỒN GIÁ MÀ TRƯỚC ĐÓ ĐÃ CÓ QUẢ TRONG PHIÊN
+	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
+		p := sess.LastProduct
+		taste := resolveTaste(&p)
+		msg := fmt.Sprintf("Dạ bên em sẵn mã %s hàng về tươi mới mỗi ngày ạ.\n"+
+			"🍇 Hương vị / Chất ăn: %s\n\n"+
+			"Bên em có chính sách giá riêng cho khách ăn gia đình và khách lấy sỉ cho shop/đại lý. Không biết Anh/Chị dự tính lấy dùng gia đình hay lấy cho shop để em báo giá tốt nhất cho mình ạ?",
+			p.TenSP, taste)
+		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 	}
 
 	// 6. CHÀO HỎI MẶC ĐỊNH
