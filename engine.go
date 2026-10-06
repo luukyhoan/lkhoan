@@ -112,6 +112,23 @@ func buildCategorySummary(categoryName, label, icon string, available []Product)
 		label, strings.Join(items, "\n"))
 }
 
+func buildHinhThucSummary(keyword, title, icon string, available []Product) string {
+	var items []string
+	for _, p := range available {
+		normHT := normalizeText(p.HinhThuc)
+		if strings.Contains(normHT, keyword) && p.SoLuong > 0 {
+			items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
+		}
+	}
+
+	if len(items) == 0 {
+		return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang tạm hết các mã %s sẵn kho, hàng đợt tới về em báo mình ngay nhé ạ!", title)
+	}
+
+	return fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nAnh/Chị quan tâm mã nào để em gửi ảnh thực tế và báo giá chi tiết ạ?",
+		title, strings.Join(items, "\n"))
+}
+
 func findAllMatchingSubline(keyword string, available []Product) []Product {
 	var list []Product
 	for _, p := range available {
@@ -123,7 +140,6 @@ func findAllMatchingSubline(keyword string, available []Product) []Product {
 	return list
 }
 
-// detectExplicitFruitCategory nhận diện rõ danh mục khách đề cập trong câu
 func detectExplicitFruitCategory(norm string) string {
 	if strings.Contains(norm, "hong tao") {
 		return "hong_tao"
@@ -158,7 +174,6 @@ func detectExplicitFruitCategory(norm string) string {
 	return ""
 }
 
-// findSpecificProduct: Lọc tuyệt đối theo Danh Mục và loại bỏ mã hết hàng (SoLuong <= 0)
 func findSpecificProduct(userMsg string, available []Product) *Product {
 	norm := expandAliases(normalizeText(userMsg))
 	words := strings.Fields(norm)
@@ -169,8 +184,6 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 
 	for i := range available {
 		p := &available[i]
-
-		// BỎ QUA HÀNG HẾT
 		if p.SoLuong <= 0 {
 			continue
 		}
@@ -179,7 +192,6 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 		pCode := strings.ToLower(p.MaSP)
 		pCat := strings.ToLower(p.DanhMuc)
 
-		// NẾU KHÁCH HỎI "CAM", CHỈ XÉT DANH MỤC "CAM", BỎ QUA HOÀN TOÀN CÁC DANH MỤC KHÁC
 		if explicitCat != "" {
 			if explicitCat == "cam" && pCat != "cam" {
 				continue
@@ -215,7 +227,7 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			for _, pw := range pWords {
 				if w == pw {
 					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
-						score += 40 // Điểm cho từ như: "uc", "nam phi", "kieng", "s55", "mfc"...
+						score += 40
 					}
 				} else if len([]rune(w)) >= 3 && strings.HasPrefix(pw, w) {
 					if w != "cam" && w != "tao" && w != "nho" {
@@ -237,33 +249,46 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 	return nil
 }
 
+func containsAny(norm string, keywords []string) bool {
+	words := strings.Fields(norm)
+	for _, kw := range keywords {
+		// Nếu từ khóa gồm nhiều từ (như "mua ban", "nha dung")
+		if strings.Contains(kw, " ") {
+			if strings.Contains(norm, kw) {
+				return true
+			}
+		} else {
+			// Nếu từ khóa chỉ là 1 từ (như "si", "buon", "an", "bieu") thì phải khớp nguyên từ
+			for _, w := range words {
+				if w == kw {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
 	norm := expandAliases(rawNorm)
 
-	retailKeywords := []string{
-		"le", "mua an", "an thu", "dung thu", "gia dinh", "1 thung", "may can", "an",
-		"le thung", "hop", "mua an thu", "nha dung", "bieu", "tang", "bieu tang", "an nha",
-	}
+	// Danh sách từ khóa SỈ (ưu tiên kiểm tra trước)
 	wholesaleKeywords := []string{
-		"si", "gia si", "lay si", "buon", "dai ly", "shop", "kinh doanh", "so luong",
-		"vao so luong", "lo", "tuyen si", "xe hang", "ban lai", "cua hang",
+		"mua ban", "mua buon", "mua si", "gia si", "ban cho", "ban cua hang", "cua hang",
+		"si", "buon", "ban", "shop", "dai ly", "kinh doanh", "vao so luong", "so luong", "lo", "xe hang",
 	}
 
+	// Danh sách từ khóa LẺ
+	retailKeywords := []string{
+		"mua an", "mua bieu", "mua dung", "nha dung", "nha su dung", "an thu", "dung thu",
+		"an", "bieu", "dung", "le", "gia dinh", "1 thung", "may can", "hop", "le thung",
+	}
+
+	isWholesale := containsAny(norm, wholesaleKeywords)
 	isRetail := false
-	for _, kw := range retailKeywords {
-		if strings.Contains(norm, kw) {
-			isRetail = true
-			break
-		}
-	}
-
-	isWholesale := false
-	for _, kw := range wholesaleKeywords {
-		if strings.Contains(norm, kw) {
-			isWholesale = true
-			break
-		}
+	if !isWholesale { // Chỉ kiểm tra lẻ nếu không phải sỉ
+		isRetail = containsAny(norm, retailKeywords)
 	}
 
 	isAskingPrice := strings.Contains(norm, "gia") || strings.Contains(norm, "bao nhieu") || strings.Contains(norm, "nhieu tien") || strings.Contains(norm, "xin gia")
@@ -273,17 +298,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
 
-		if isRetail {
-			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
-				"✨ Sản phẩm: %s\n"+
-				"📦 Quy cách: %s\n"+
-				"💰 Giá lẻ thùng: %s\n"+
-				"🍇 Hương vị / Chất ăn: %s\n\n"+
-				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
-				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
-			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
-		}
-
+		// ƯU TIÊN SỈ: Khi khách nói "mua bán", "bán", "mua sỉ"...
 		if isWholesale {
 			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
 				"✨ Sản phẩm: %s\n"+
@@ -292,6 +307,18 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 				"🍇 Hương vị / Chất ăn: %s\n\n"+
 				"Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?",
 				p.TenSP, p.QuyCach, p.GiaSiLo, taste)
+			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+		}
+
+		// KHÁCH LẺ: Mua ăn, biếu, dùng gia đình...
+		if isRetail {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá lẻ thùng: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
+				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
 			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 		}
 	}
@@ -303,17 +330,6 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		p := matchedProd
 		taste := resolveTaste(p)
 
-		if isRetail {
-			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
-				"✨ Sản phẩm: %s\n"+
-				"📦 Quy cách: %s\n"+
-				"💰 Giá lẻ thùng: %s\n"+
-				"🍇 Hương vị / Chất ăn: %s\n\n"+
-				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
-				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
-			return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
-		}
-
 		if isWholesale {
 			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
 				"✨ Sản phẩm: %s\n"+
@@ -322,6 +338,17 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 				"🍇 Hương vị / Chất ăn: %s\n\n"+
 				"Anh/Chị dự tính vào số lượng bao nhiêu thùng để em chuẩn bị gửi xe ạ?",
 				p.TenSP, p.QuyCach, p.GiaSiLo, taste)
+			return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
+		}
+
+		if isRetail {
+			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
+				"✨ Sản phẩm: %s\n"+
+				"📦 Quy cách: %s\n"+
+				"💰 Giá lẻ thùng: %s\n"+
+				"🍇 Hương vị / Chất ăn: %s\n\n"+
+				"Anh/Chị lấy mấy thùng để em lên đơn giao sớm cho mình ạ?",
+				p.TenSP, p.QuyCach, p.GiaLeThung, taste)
 			return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
 		}
 
