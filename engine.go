@@ -96,7 +96,6 @@ func resolveTaste(p *Product) string {
 	return taste
 }
 
-// buildCategorySummary gom tất cả mã hàng còn hàng theo đúng form
 func buildCategorySummary(categoryName, label, icon string, available []Product) string {
 	var items []string
 	for _, p := range available {
@@ -113,7 +112,6 @@ func buildCategorySummary(categoryName, label, icon string, available []Product)
 		label, strings.Join(items, "\n"))
 }
 
-// buildHinhThucSummary lọc sản phẩm theo cột Hinh_Thuc (Hàng Bay, Hàng Cont, Nông Sản Việt)
 func buildHinhThucSummary(keyword, title, icon string, available []Product) string {
 	var items []string
 	for _, p := range available {
@@ -142,18 +140,76 @@ func findAllMatchingSubline(keyword string, available []Product) []Product {
 	return list
 }
 
+// detectExplicitCategory phát hiện rõ danh mục quả khách nhắc đến
+func detectExplicitCategory(norm string) string {
+	if strings.Contains(norm, "hong tao") {
+		return "hong_tao"
+	}
+	if strings.Contains(norm, "nho sua") {
+		return "nho_sua"
+	}
+	if strings.Contains(norm, "cam") {
+		return "cam"
+	}
+	if strings.Contains(norm, "quyt") {
+		return "quyt"
+	}
+	if strings.Contains(norm, "tao") || strings.Contains(norm, "dazzle") || strings.Contains(norm, "envy") || strings.Contains(norm, "queen") || strings.Contains(norm, "rockit") {
+		return "tao"
+	}
+	if strings.Contains(norm, "nho") {
+		return "nho"
+	}
+	if strings.Contains(norm, "dua") {
+		return "dua"
+	}
+	if strings.Contains(norm, "kiwi") {
+		return "kiwi"
+	}
+	if strings.Contains(norm, "man") {
+		return "man"
+	}
+	if strings.Contains(norm, "viet quat") {
+		return "viet_quat"
+	}
+	return ""
+}
+
+// findSpecificProduct khóa chặt theo Danh_Muc và chỉ xét các mặt hàng CÒN HÀNG (SoLuong > 0)
 func findSpecificProduct(userMsg string, available []Product) *Product {
 	norm := expandAliases(normalizeText(userMsg))
 	words := strings.Fields(norm)
+	explicitCat := detectExplicitCategory(norm)
 
 	var bestProd *Product
 	highestScore := 0
 
 	for i := range available {
 		p := &available[i]
+		// BỎ QUA HOÀN TOÀN CÁC MÃ HẾT HÀNG
+		if p.SoLuong <= 0 {
+			continue
+		}
+
 		pNorm := normalizeText(p.TenSP)
 		pCode := strings.ToLower(p.MaSP)
 		pCat := strings.ToLower(p.DanhMuc)
+
+		// NẾU ĐÃ XÁC ĐỊNH DANH MỤC (vd: "cam"), TUYỆT ĐỐI KHÔNG ĐỤNG VÀO DANH MỤC KHÁC (vd: "tao")
+		if explicitCat != "" {
+			if explicitCat == "cam" && pCat != "cam" {
+				continue
+			}
+			if explicitCat == "hong_tao" && pCat != "hong_tao" {
+				continue
+			}
+			if explicitCat == "tao" && (pCat != "tao" || pCat == "hong_tao") {
+				continue
+			}
+			if explicitCat == "quyt" && pCat != "quyt" {
+				continue
+			}
+		}
 
 		score := 0
 
@@ -171,7 +227,6 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			}
 			for _, pw := range pWords {
 				if w == pw {
-					// Loại bỏ từ chung chung
 					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
 						score += 40
 					}
@@ -181,13 +236,6 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 					}
 				}
 			}
-		}
-
-		if strings.Contains(norm, "hong tao") && pCat != "hong_tao" {
-			score -= 60
-		}
-		if !strings.Contains(norm, "hong tao") && strings.Contains(norm, "tao") && pCat == "hong_tao" {
-			score -= 60
 		}
 
 		if score > highestScore {
@@ -233,7 +281,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 
 	isAskingPrice := strings.Contains(norm, "gia") || strings.Contains(norm, "bao nhieu") || strings.Contains(norm, "nhieu tien") || strings.Contains(norm, "xin gia")
 
-	// 1. NẾU KHÁCH ĐANG CHỐT SỈ/LẺ CHO SẢN PHẨM ĐÃ CÓ TRONG PHIÊN
+	// 1. NẾU KHÁCH ĐANG CHỐT SỈ/LẺ CHO SẢN PHẨM TRONG PHIÊN
 	if sess != nil && sess.LastProduct.MaSP != "" && (isRetail || isWholesale) {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
@@ -261,100 +309,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 2. ƯU TIÊN KIỂM TRA KHÁCH HỎI CẢ DÒNG CON (ENVY, DAZZLE, QUEEN, MIZUKI...) CHƯA CHỈ SIZE
-	sublines := []struct {
-		kw    string
-		label string
-		icon  string
-	}{
-		{"envy", "Táo Envy", "🍎"},
-		{"dazzle", "Táo Dazzle", "🍎"},
-		{"rockit", "Táo Rockit", "🍎"},
-		{"queen", "Táo Queen", "🍎"},
-		{"mizuki", "Nho Sữa Mizuki", "🍇"},
-	}
-
-	for _, sub := range sublines {
-		if strings.Contains(norm, sub.kw) {
-			hasSpecificSize := false
-			for _, w := range strings.Fields(norm) {
-				if strings.HasPrefix(w, "s") || strings.HasPrefix(w, "sz") || strings.Contains(w, "30") || strings.Contains(w, "70") || strings.Contains(w, "80") || strings.Contains(w, "90") {
-					hasSpecificSize = true
-					break
-				}
-			}
-			if !hasSpecificSize {
-				prods := findAllMatchingSubline(sub.kw, available)
-				if len(prods) > 0 {
-					var lines []string
-					for _, p := range prods {
-						lines = append(lines, fmt.Sprintf("%s %s (%s)", sub.icon, p.TenSP, p.QuyCach))
-					}
-					msg := fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã size nào để em gửi ảnh chi tiết và báo giá ạ?",
-						sub.label, strings.Join(lines, "\n"))
-					return &BotReply{Message: msg, Product: nil, ShouldSendImg: false}
-				}
-			}
-		}
-	}
-
-	// 3. ƯU TIÊN KIỂM TRA KHÁCH HỎI THEO DANH MỤC LỚN (CAM, TÁO, NHO, QUÝT, DƯA, KIWI...)
-	// Kiểm tra xem khách có kèm tên định danh riêng không (ví dụ "cam úc", "táo queen")
-	hasSpecificDetail := false
-	specificClues := []string{"uc", "nam phi", "kieng", "s40", "s55", "mfc", "dazzle", "envy", "queen", "rockit", "koru", "delecta", "mizuki", "ginseng"}
-	for _, clue := range specificClues {
-		if strings.Contains(norm, clue) {
-			hasSpecificDetail = true
-			break
-		}
-	}
-
-	// Nếu khách chỉ hỏi chung chung về loại quả mà không kèm tên riêng cụ thể -> Gửi toàn bộ danh sách mã còn hàng
-	if !hasSpecificDetail {
-		if strings.Contains(norm, "hong tao") {
-			return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "tao") {
-			return &BotReply{Message: buildCategorySummary("tao", "Táo", "🍎", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "cam") {
-			return &BotReply{Message: buildCategorySummary("cam", "Cam", "🍊", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "quyt") {
-			return &BotReply{Message: buildCategorySummary("quyt", "Quýt", "🍊", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "nho sua") {
-			return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", "🍇", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "nho") {
-			return &BotReply{Message: buildCategorySummary("nho", "Nho", "🍇", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "dua") {
-			return &BotReply{Message: buildCategorySummary("dua", "Dưa", "🍈", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "kiwi") {
-			return &BotReply{Message: buildCategorySummary("kiwi", "Kiwi", "🥝", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "man") {
-			return &BotReply{Message: buildCategorySummary("man", "Mận", "🍑", available), Product: nil, ShouldSendImg: false}
-		}
-		if strings.Contains(norm, "viet quat") {
-			return &BotReply{Message: buildCategorySummary("viet_quat", "Việt Quất", "🫐", available), Product: nil, ShouldSendImg: false}
-		}
-	}
-
-	// 4. LỌC THEO HÌNH THỨC (HÀNG BAY, HÀNG CONT, NÔNG SẢN VIỆT)
-	if strings.Contains(norm, "hang bay") || strings.Contains(norm, "di bay") || strings.Contains(norm, "air") {
-		return &BotReply{Message: buildHinhThucSummary("bay", "Hàng Bay (Air Cargo)", "✈️", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "hang cont") || strings.Contains(norm, "di cont") {
-		return &BotReply{Message: buildHinhThucSummary("cont", "Hàng Cont Lạnh", "🚢", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "nong san") || strings.Contains(norm, "hang viet") || strings.Contains(norm, "viet nam") {
-		return &BotReply{Message: buildHinhThucSummary("viet", "Nông Sản Việt Nam", "🌾", available), Product: nil, ShouldSendImg: false}
-	}
-
-	// 5. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM KHÁCH NÊU CỤ THỂ
+	// 2. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM (Khóa chặt danh mục, ví dụ: "cam úc", "cam nam phi")
 	matchedProd := findSpecificProduct(userMsg, available)
 	if matchedProd != nil {
 		sess.LastProduct = *matchedProd
@@ -390,7 +345,78 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
 	}
 
-	// 6. KHÁCH HỎI DỒN GIÁ MÀ TRƯỚC ĐÓ ĐÃ CHỌN 1 MÃ QUẢ
+	// 3. NẾU KHÁCH HỎI CẢ DÒNG CON (ENVY, DAZZLE, QUEEN, MIZUKI...) CHƯA CHỈ SIZE
+	sublines := []struct {
+		kw    string
+		label string
+		icon  string
+	}{
+		{"envy", "Táo Envy", "🍎"},
+		{"dazzle", "Táo Dazzle", "🍎"},
+		{"rockit", "Táo Rockit", "🍎"},
+		{"queen", "Táo Queen", "🍎"},
+		{"mizuki", "Nho Sữa Mizuki", "🍇"},
+	}
+
+	for _, sub := range sublines {
+		if strings.Contains(norm, sub.kw) {
+			prods := findAllMatchingSubline(sub.kw, available)
+			if len(prods) > 0 {
+				var lines []string
+				for _, p := range prods {
+					lines = append(lines, fmt.Sprintf("%s %s (%s)", sub.icon, p.TenSP, p.QuyCach))
+				}
+				msg := fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã size nào để em gửi ảnh chi tiết và báo giá ạ?",
+					sub.label, strings.Join(lines, "\n"))
+				return &BotReply{Message: msg, Product: nil, ShouldSendImg: false}
+			}
+		}
+	}
+
+	// 4. LỌC TOÀN BỘ THEO DANH MỤC LỚN (CỘT C TRÊN SHEET)
+	if strings.Contains(norm, "hong tao") {
+		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "tao") {
+		return &BotReply{Message: buildCategorySummary("tao", "Táo", "🍎", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "cam") {
+		return &BotReply{Message: buildCategorySummary("cam", "Cam", "🍊", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "quyt") {
+		return &BotReply{Message: buildCategorySummary("quyt", "Quýt", "🍊", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "nho sua") {
+		return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", "🍇", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "nho") {
+		return &BotReply{Message: buildCategorySummary("nho", "Nho", "🍇", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "dua") {
+		return &BotReply{Message: buildCategorySummary("dua", "Dưa", "🍈", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "kiwi") {
+		return &BotReply{Message: buildCategorySummary("kiwi", "Kiwi", "🥝", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "man") {
+		return &BotReply{Message: buildCategorySummary("man", "Mận", "🍑", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "viet quat") {
+		return &BotReply{Message: buildCategorySummary("viet_quat", "Việt Quất", "🫐", available), Product: nil, ShouldSendImg: false}
+	}
+
+	// 5. LỌC THEO HÌNH THỨC (HÀNG BAY, HÀNG CONT, NÔNG SẢN VIỆT)
+	if strings.Contains(norm, "hang bay") || strings.Contains(norm, "di bay") || strings.Contains(norm, "air") {
+		return &BotReply{Message: buildHinhThucSummary("bay", "Hàng Bay (Air Cargo)", "✈️", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "hang cont") || strings.Contains(norm, "di cont") {
+		return &BotReply{Message: buildHinhThucSummary("cont", "Hàng Cont Lạnh", "🚢", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "nong san") || strings.Contains(norm, "hang viet") || strings.Contains(norm, "viet nam") {
+		return &BotReply{Message: buildHinhThucSummary("viet", "Nông Sản Việt Nam", "🌾", available), Product: nil, ShouldSendImg: false}
+	}
+
+	// 6. KHÁCH HỎI DỒN GIÁ MÀ TRƯỚC ĐÓ ĐÃ CÓ QUẢ TRONG PHIÊN
 	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
