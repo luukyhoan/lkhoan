@@ -81,27 +81,25 @@ func pickRandom(slice []string) string {
 	return slice[r.Intn(len(slice))]
 }
 
-// buildCategorySummary tạo thực đơn ngắn khi khách chỉ hỏi chung chung tên nhóm quả
-func buildCategorySummary(categoryName, label string, available []Product) string {
+// buildCategorySummary gom tất cả mã hàng còn hàng theo đúng form mẫu
+func buildCategorySummary(categoryName, label, icon string, available []Product) string {
 	var items []string
 	for _, p := range available {
-		// Chỉ lấy mã thuộc danh mục đó và CÒN HÀNG (SoLuong > 0)
+		// Quét toàn bộ mã thuộc danh mục đang có số lượng > 0 trên Sheet
 		if strings.EqualFold(p.DanhMuc, categoryName) && p.SoLuong > 0 {
-			items = append(items, fmt.Sprintf("🔹 %s (%s)", p.TenSP, p.QuyCach))
-			if len(items) >= 6 { // Lấy tối đa 6 dòng nổi bật nhất để không làm rối mắt
-				break
-			}
+			items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
 		}
 	}
 
 	if len(items) == 0 {
-		return fmt.Sprintf("Dạ hiện tại các mã %s bên em đang tạm hết hàng mới, đợt tới về em báo mình ngay nhé ạ!", label)
+		return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang tạm hết các mã %s mới, hàng đợt tới về em sẽ báo mình ngay nhé ạ!", label)
 	}
 
-	return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang sẵn các dòng %s tươi mới chuẩn ngon sau ạ:\n\n%s\n\nAnh/Chị đang quan tâm loại nào trong danh sách trên để em gửi hình ảnh và báo giá chi tiết cho mình ạ?",
-		label, strings.Join(items, "\n"))
+	return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang sẵn các dòng %s nhập khẩu tươi ngon sau ạ:\n\n%s\n\nDạ không biết mình đang cần tìm mã %s nào em gửi ảnh chi tiết sản phẩm ạ?",
+		label, strings.Join(items, "\n"), strings.ToLower(label))
 }
 
+// findSpecificProduct nhận diện khi khách nêu đích danh 1 mã sản phẩm
 func findSpecificProduct(userMsg string, available []Product) *Product {
 	norm := normalizeText(userMsg)
 
@@ -151,7 +149,7 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 				continue
 			}
 			if strings.Contains(pNorm, w) {
-				// Điểm cộng lớn cho các tên riêng đặc thù
+				// Điểm cộng lớn cho các tên riêng cụ thể (queen, dazzle, rockit, koru, evercrip...)
 				if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "co" && w != "khong" {
 					score += 30
 				} else {
@@ -166,7 +164,7 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 		}
 	}
 
-	// Đạt điểm tối thiểu 30 mới xem là đã xác định đích danh một loại quả
+	// Đạt điểm tối thiểu 30 mới được coi là hỏi đích danh 1 sản phẩm
 	if highestScore >= 30 {
 		return bestProd
 	}
@@ -227,7 +225,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 2. Kiểm tra xem khách đang hỏi đích danh 1 mã hay hỏi chung chung một danh mục
+	// 2. Kiểm tra xem khách có gọi đích danh 1 mã quả cụ thể nào không
 	matchedProd := findSpecificProduct(userMsg, available)
 
 	if matchedProd != nil {
@@ -237,7 +235,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		if isRetail {
 			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
 				"✨ Sản phẩm: %s\n"+
-				"🏷️️ Hình thức: %s\n"+
+				"🏷️ Hình thức: %s\n"+
 				"📦 Quy cách: %s\n"+
 				"💰 Giá lẻ thùng: %s\n"+
 				"🍇 Hương vị / Chất ăn: %s\n\n"+
@@ -265,24 +263,30 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: matchedProd, ShouldSendImg: true}
 	}
 
-	// 3. Khách hỏi chung chung theo danh mục -> Gửi menu danh sách rút gọn (không bắn ảnh ồ ạt)
+	// 3. Khách hỏi chung chung theo danh mục -> Liệt kê toàn bộ mã còn hàng theo đúng form
 	if strings.Contains(norm, "hong tao") {
-		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "tao") {
-		return &BotReply{Message: buildCategorySummary("tao", "Táo", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("tao", "Táo", "🍎", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "nho sua") {
-		return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("nho_sua", "Nho Sữa", "🍇", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "nho") {
-		return &BotReply{Message: buildCategorySummary("nho", "Nho", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("nho", "Nho", "🍇", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "cam") {
-		return &BotReply{Message: buildCategorySummary("cam", "Cam", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("cam", "Cam", "🍊", available), Product: nil, ShouldSendImg: false}
 	}
 	if strings.Contains(norm, "quyt") {
-		return &BotReply{Message: buildCategorySummary("quyt", "Quýt", available), Product: nil, ShouldSendImg: false}
+		return &BotReply{Message: buildCategorySummary("quyt", "Quýt", "🍊", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "dua") {
+		return &BotReply{Message: buildCategorySummary("dua", "Dưa", "🍈", available), Product: nil, ShouldSendImg: false}
+	}
+	if strings.Contains(norm, "kiwi") {
+		return &BotReply{Message: buildCategorySummary("kiwi", "Kiwi", "🥝", available), Product: nil, ShouldSendImg: false}
 	}
 
 	// 4. Chào hỏi mặc định
