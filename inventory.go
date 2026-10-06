@@ -71,16 +71,16 @@ func (im *InventoryManager) refreshData() {
 		qty, _ := strconv.Atoi(getCol(6))
 
 		p := Product{
-			MaSP:        getCol(0), // Cột A: Mã SP
-			TenSP:       getCol(1), // Cột B: Tên SP
-			XuatXu:      getCol(2), // Cột C: Xuất xứ
-			QuyCach:     getCol(3), // Cột D: Quy cách
-			GiaLeThung:  getCol(4), // Cột E: Giá lẻ
-			GiaSiLo:     getCol(5), // Cột F: Giá sỉ
-			SoLuong:     qty,       // Cột G: Số lượng
-			FolderAnhID: getCol(7), // Cột H: Link Folder ảnh
-			HinhThuc:    getCol(8), // Cột I: Hinh_Thuc (Hàng Bay / Hàng Cont / Nông Sản Việt)
-			ChatAn:      getCol(9), // Cột J: Chat_An (Mô tả chất ăn lô thực tế)
+			MaSP:        getCol(0), // Cột A: Ma_SP
+			TenSP:       getCol(1), // Cột B: Ten_SP
+			DanhMuc:     getCol(2), // Cột C: Danh_Muc
+			QuyCach:     getCol(3), // Cột D: Quy_Cach
+			GiaLeThung:  getCol(4), // Cột E: Gia_Le_Thung
+			GiaSiLo:     getCol(5), // Cột F: Gia_Si_Lo
+			SoLuong:     qty,       // Cột G: So_Luong
+			FolderAnhID: getCol(7), // Cột H: Folder_Anh_ID
+			HinhThuc:    getCol(8), // Cột I: Hinh_Thuc
+			ChatAn:      getCol(9), // Cột J: Chat_An
 		}
 
 		if p.TenSP != "" {
