@@ -16,6 +16,10 @@ import (
 var (
 	userSessions = make(map[string]*UserSession)
 	sessionMutex sync.Mutex
+
+	// Cache lưu các message ID (mid) đã xử lý để tránh Meta webhook retry trùng lặp
+	processedMIDs = make(map[string]time.Time)
+	midMutex      sync.Mutex
 )
 
 type WebhookCallback struct {
@@ -33,12 +37,34 @@ type WebhookCallback struct {
 			Message struct {
 				Mid  string `json:"mid"`
 				Text string `json:"text"`
+				IsEcho bool `json:"is_echo"`
 			} `json:"message"`
 		} `json:"messaging"`
 	} `json:"entry"`
 }
 
-// sendProductPhotos bốc tách dữ liệu ảnh từ Drive và upload trực tiếp sang Messenger
+func isDuplicateMessage(mid string) bool {
+	if mid == "" {
+		return false
+	}
+	midMutex.Lock()
+	defer midMutex.Unlock()
+
+	// Dọn dẹp các mid cũ quá 5 phút
+	now := time.Now()
+	for k, t := range processedMIDs {
+		if now.Sub(t) > 5*time.Minute {
+			delete(processedMIDs, k)
+		}
+	}
+
+	if _, exists := processedMIDs[mid]; exists {
+		return true
+	}
+	processedMIDs[mid] = now
+	return false
+}
+
 func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName string) {
 	if folderURL == "" {
 		return
@@ -54,7 +80,7 @@ func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName s
 			}
 		}
 	} else {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị có thể bấm xem album ảnh thực tế %s tại đây ạ:\n%s", productName, folderURL))
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị có thể bấm xem trọn bộ album ảnh và video lô %s tại đây ạ:\n%s", productName, folderURL))
 	}
 }
 
@@ -66,11 +92,6 @@ func main() {
 
 	inventoryMgr := NewInventoryManager(sheetID, credFile)
 	InitDriveHelper(credFile)
-
-	aiAdvisor := NewMultiAIAdvisor(
-		os.Getenv("GROQ_API_KEY"),
-		os.Getenv("GEMINI_API_KEY"),
-	)
 	metaSender := NewMetaSender()
 
 	verifyToken := os.Getenv("META_VERIFY_TOKEN")
@@ -99,6 +120,7 @@ func main() {
 			return
 		}
 
+		// Trả ngay 200 OK cho Meta lập tức để không bị retry
 		c.JSON(http.StatusOK, gin.H{"status": "EVENT_RECEIVED"})
 
 		if callback.Object != "page" {
@@ -107,14 +129,25 @@ func main() {
 
 		for _, entry := range callback.Entry {
 			for _, event := range entry.Messaging {
+				// Bỏ qua tin nhắn do chính page gửi đi (echo)
+				if event.Message.IsEcho {
+					continue
+				}
+
 				senderID := event.Sender.ID
 				userMsg := strings.TrimSpace(event.Message.Text)
+				mid := event.Message.Mid
 
 				if userMsg == "" {
 					continue
 				}
 
-				customerName := metaSender.GetUserName(senderID)
+				// Chặn trùng lặp tin nhắn
+				if isDuplicateMessage(mid) {
+					log.Printf("[Webhook] Bỏ qua tin nhắn trùng mid: %s", mid)
+					continue
+				}
+
 				available := inventoryMgr.GetAvailableProducts()
 
 				sessionMutex.Lock()
@@ -123,48 +156,16 @@ func main() {
 					sess = &UserSession{}
 					userSessions[senderID] = sess
 				}
-				var pendingProd *Product
-				if sess.LastProduct.MaSP != "" {
-					pendingProd = &sess.LastProduct
-				}
 				sessionMutex.Unlock()
 
-				// 1. Phản hồi nhanh từ RAM: Giữ kín giá, gửi chùm ảnh Drive trực tiếp
-				if match := FindProductInMemory(userMsg); match != nil {
-					sessionMutex.Lock()
-					if match.LastProduct != nil {
-						sess.LastProduct = *match.LastProduct
+				go func(uid, text string, s *UserSession) {
+					reply := ProcessCustomerMessage(text, s, available)
+					_ = metaSender.SendTextMessage(uid, reply.Message)
+
+					if reply.ShouldSendImg && reply.Product != nil && reply.Product.FolderAnhID != "" {
+						sendProductPhotos(metaSender, uid, reply.Product.FolderAnhID, reply.Product.TenSP)
 					}
-					sessionMutex.Unlock()
-
-					go metaSender.SendTextMessage(senderID, match.Message)
-					if match.PhotoURL != "" {
-						go sendProductPhotos(metaSender, senderID, match.PhotoURL, match.LastProduct.TenSP)
-					}
-					continue
-				}
-
-				// 2. Chuyển sang AI (Groq/Gemini song song) xử lý phân loại giá
-				aiRes, err := aiAdvisor.GenerateReply(customerName, userMsg, available, pendingProd)
-				if err != nil {
-					log.Printf("AI Error: %v", err)
-					continue
-				}
-
-				go metaSender.SendTextMessage(senderID, aiRes.Message)
-
-				if len(aiRes.SelectedCodes) > 0 {
-					go func(codes []string) {
-						for _, code := range codes {
-							for _, p := range available {
-								if strings.EqualFold(p.MaSP, code) && p.FolderAnhID != "" {
-									sendProductPhotos(metaSender, senderID, p.FolderAnhID, p.TenSP)
-									break
-								}
-							}
-						}
-					}(aiRes.SelectedCodes)
-				}
+				}(senderID, userMsg, sess)
 			}
 		}
 	})
