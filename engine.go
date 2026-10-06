@@ -112,23 +112,6 @@ func buildCategorySummary(categoryName, label, icon string, available []Product)
 		label, strings.Join(items, "\n"))
 }
 
-func buildHinhThucSummary(keyword, title, icon string, available []Product) string {
-	var items []string
-	for _, p := range available {
-		normHT := normalizeText(p.HinhThuc)
-		if strings.Contains(normHT, keyword) && p.SoLuong > 0 {
-			items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
-		}
-	}
-
-	if len(items) == 0 {
-		return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang tạm hết các mã %s sẵn kho, hàng đợt tới về em báo mình ngay nhé ạ!", title)
-	}
-
-	return fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nAnh/Chị quan tâm mã nào để em gửi ảnh thực tế và báo giá chi tiết ạ?",
-		title, strings.Join(items, "\n"))
-}
-
 func findAllMatchingSubline(keyword string, available []Product) []Product {
 	var list []Product
 	for _, p := range available {
@@ -178,6 +161,20 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 	norm := expandAliases(normalizeText(userMsg))
 	words := strings.Fields(norm)
 	explicitCat := detectExplicitFruitCategory(norm)
+
+	// Nếu câu chỉ hỏi giá, hỏi số lượng, mặc cả mà không nhắc tên quả -> Không tìm sản phẩm mới
+	if explicitCat == "" {
+		hasFruitWord := false
+		for _, w := range words {
+			if w == "tao" || w == "cam" || w == "quyt" || w == "nho" || w == "dua" || w == "kiwi" || w == "le" || w == "man" {
+				hasFruitWord = true
+				break
+			}
+		}
+		if !hasFruitWord {
+			return nil
+		}
+	}
 
 	var bestProd *Product
 	highestScore := 0
@@ -252,13 +249,11 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 func containsAny(norm string, keywords []string) bool {
 	words := strings.Fields(norm)
 	for _, kw := range keywords {
-		// Nếu từ khóa gồm nhiều từ (như "mua ban", "nha dung")
 		if strings.Contains(kw, " ") {
 			if strings.Contains(norm, kw) {
 				return true
 			}
 		} else {
-			// Nếu từ khóa chỉ là 1 từ (như "si", "buon", "an", "bieu") thì phải khớp nguyên từ
 			for _, w := range words {
 				if w == kw {
 					return true
@@ -273,13 +268,20 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	rawNorm := normalizeText(userMsg)
 	norm := expandAliases(rawNorm)
 
-	// Danh sách từ khóa SỈ (ưu tiên kiểm tra trước)
+	// Nhóm từ khóa MẶC CẢ / HỎI CHIẾT KHẤU / MUA NHIỀU
+	discountKeywords := []string{
+		"mua nhieu", "gia tot hon", "giam gia", "bot khong", "chiet khau", "bot gia",
+		"gia uu dai", "lay nhieu", "so luong nhieu", "gia tot", "co bot", "co giam",
+	}
+	isAskingDiscount := containsAny(norm, discountKeywords)
+
+	// Nhóm từ khóa SỈ
 	wholesaleKeywords := []string{
 		"mua ban", "mua buon", "mua si", "gia si", "ban cho", "ban cua hang", "cua hang",
 		"si", "buon", "ban", "shop", "dai ly", "kinh doanh", "vao so luong", "so luong", "lo", "xe hang",
 	}
 
-	// Danh sách từ khóa LẺ
+	// Nhóm từ khóa LẺ
 	retailKeywords := []string{
 		"mua an", "mua bieu", "mua dung", "nha dung", "nha su dung", "an thu", "dung thu",
 		"an", "bieu", "dung", "le", "gia dinh", "1 thung", "may can", "hop", "le thung",
@@ -287,18 +289,32 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 
 	isWholesale := containsAny(norm, wholesaleKeywords)
 	isRetail := false
-	if !isWholesale { // Chỉ kiểm tra lẻ nếu không phải sỉ
+	if !isWholesale && !isAskingDiscount {
 		isRetail = containsAny(norm, retailKeywords)
 	}
 
 	isAskingPrice := strings.Contains(norm, "gia") || strings.Contains(norm, "bao nhieu") || strings.Contains(norm, "nhieu tien") || strings.Contains(norm, "xin gia")
 
-	// 1. NẾU KHÁCH ĐANG CHỐT SỈ/LẺ CHO SẢN PHẨM TRONG PHIÊN
+	// 1. NẾU KHÁCH MẶC CẢ / HỎI MUA NHIỀU CÓ GIÁ TỐT KHÔNG (Bám chặt vào sản phẩm đang trao đổi)
+	if isAskingDiscount && sess != nil && sess.LastProduct.MaSP != "" {
+		p := sess.LastProduct
+		taste := resolveTaste(&p)
+
+		msg := fmt.Sprintf("Dạ chắc chắn rồi ạ! Với mã %s bên em luôn có chính sách giá sỉ trợ giá cực tốt khi mình lấy theo số lượng thùng hoặc vào cả lô ạ:\n\n"+
+			"📦 Quy cách: %s\n"+
+			"💰 Giá sỉ lô tham khảo: %s\n"+
+			"🍇 Chất ăn: %s\n\n"+
+			"Anh/Chị dự tính lấy số lượng khoảng bao nhiêu thùng để em báo mức chiết khấu sát nhất và hỗ trợ gửi xe cho mình ạ?",
+			p.TenSP, p.QuyCach, p.GiaSiLo, taste)
+
+		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+	}
+
+	// 2. NẾU KHÁCH CHỐT SỈ/LẺ CHO SẢN PHẨM TRONG PHIÊN
 	if sess != nil && sess.LastProduct.MaSP != "" && (isRetail || isWholesale) {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
 
-		// ƯU TIÊN SỈ: Khi khách nói "mua bán", "bán", "mua sỉ"...
 		if isWholesale {
 			msg := fmt.Sprintf("Dạ em gửi Anh/Chị chính sách giá sỉ ưu đãi cho đại lý/shop bên em:\n"+
 				"✨ Sản phẩm: %s\n"+
@@ -310,7 +326,6 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 		}
 
-		// KHÁCH LẺ: Mua ăn, biếu, dùng gia đình...
 		if isRetail {
 			msg := fmt.Sprintf("Dạ em gửi Anh/Chị thông tin lô hàng chuẩn ngon bên em ạ:\n"+
 				"✨ Sản phẩm: %s\n"+
@@ -323,7 +338,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 2. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM (Ví dụ: "cam úc", "cam nam phi", "envy sz30"...)
+	// 3. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM MỚI (Khách nêu rõ tên quả)
 	matchedProd := findSpecificProduct(userMsg, available)
 	if matchedProd != nil {
 		sess.LastProduct = *matchedProd
@@ -359,7 +374,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
 	}
 
-	// 3. NẾU KHÁCH HỎI CẢ DÒNG CON CHƯA CHỈ SIZE (ENVY, DAZZLE, QUEEN, MIZUKI...)
+	// 4. NẾU KHÁCH HỎI CẢ DÒNG CON CHƯA CHỈ SIZE (ENVY, DAZZLE, QUEEN...)
 	sublines := []struct {
 		kw    string
 		label string
@@ -387,7 +402,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 4. LỌC TOÀN BỘ THEO DANH MỤC LỚN KHI KHÁCH CHỈ HỎI CHUNG (TÁO, CAM, QUÝT, NHO...)
+	// 5. LỌC THEO DANH MỤC LỚN KHI HỎI CHUNG (TÁO, CAM, QUÝT, NHO...)
 	if strings.Contains(norm, "hong tao") {
 		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
 	}
@@ -419,7 +434,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: buildCategorySummary("viet_quat", "Việt Quất", "🫐", available), Product: nil, ShouldSendImg: false}
 	}
 
-	// 5. KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ SẢN PHẨM LƯU TRONG PHIÊN
+	// 6. KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ QUẢ TRONG PHIÊN
 	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
@@ -430,7 +445,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 	}
 
-	// 6. CHÀO HỎI MẶC ĐỊNH
+	// 7. CHÀO HỎI MẶC ĐỊNH
 	return &BotReply{
 		Message: "Dạ Tổng kho trái cây nhập khẩu & Nông sản HP FRUIT (Bồ Đề - Long Biên) xin chào Anh/Chị ạ! Bên em sẵn rất nhiều mã hoa quả chuẩn hàng bay, hàng cont và nông sản sạch tươi ngon mỗi ngày. Anh/Chị đang quan tâm dòng quả nào để em gửi hình ảnh và báo giá chi tiết ạ?",
 		Product: nil,
