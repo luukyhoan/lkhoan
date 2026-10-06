@@ -112,23 +112,6 @@ func buildCategorySummary(categoryName, label, icon string, available []Product)
 		label, strings.Join(items, "\n"))
 }
 
-func buildHinhThucSummary(keyword, title, icon string, available []Product) string {
-	var items []string
-	for _, p := range available {
-		normHT := normalizeText(p.HinhThuc)
-		if strings.Contains(normHT, keyword) && p.SoLuong > 0 {
-			items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
-		}
-	}
-
-	if len(items) == 0 {
-		return fmt.Sprintf("Dạ hiện tại kho HP FRUIT đang tạm hết các mã %s sẵn kho, hàng đợt tới về em báo mình ngay nhé ạ!", title)
-	}
-
-	return fmt.Sprintf("Dạ bên em sẵn các mã %s hàng về tươi mới mỗi ngày ạ:\n\n%s\n\nAnh/Chị quan tâm mã nào để em gửi ảnh thực tế và báo giá chi tiết ạ?",
-		title, strings.Join(items, "\n"))
-}
-
 func findAllMatchingSubline(keyword string, available []Product) []Product {
 	var list []Product
 	for _, p := range available {
@@ -140,8 +123,8 @@ func findAllMatchingSubline(keyword string, available []Product) []Product {
 	return list
 }
 
-// detectExplicitCategory phát hiện rõ danh mục quả khách nhắc đến
-func detectExplicitCategory(norm string) string {
+// detectExplicitFruitCategory nhận diện rõ danh mục khách đề cập trong câu
+func detectExplicitFruitCategory(norm string) string {
 	if strings.Contains(norm, "hong tao") {
 		return "hong_tao"
 	}
@@ -175,18 +158,19 @@ func detectExplicitCategory(norm string) string {
 	return ""
 }
 
-// findSpecificProduct khóa chặt theo Danh_Muc và chỉ xét các mặt hàng CÒN HÀNG (SoLuong > 0)
+// findSpecificProduct: Lọc tuyệt đối theo Danh Mục và loại bỏ mã hết hàng (SoLuong <= 0)
 func findSpecificProduct(userMsg string, available []Product) *Product {
 	norm := expandAliases(normalizeText(userMsg))
 	words := strings.Fields(norm)
-	explicitCat := detectExplicitCategory(norm)
+	explicitCat := detectExplicitFruitCategory(norm)
 
 	var bestProd *Product
 	highestScore := 0
 
 	for i := range available {
 		p := &available[i]
-		// BỎ QUA HOÀN TOÀN CÁC MÃ HẾT HÀNG
+
+		// BỎ QUA HÀNG HẾT
 		if p.SoLuong <= 0 {
 			continue
 		}
@@ -195,18 +179,21 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 		pCode := strings.ToLower(p.MaSP)
 		pCat := strings.ToLower(p.DanhMuc)
 
-		// NẾU ĐÃ XÁC ĐỊNH DANH MỤC (vd: "cam"), TUYỆT ĐỐI KHÔNG ĐỤNG VÀO DANH MỤC KHÁC (vd: "tao")
+		// NẾU KHÁCH HỎI "CAM", CHỈ XÉT DANH MỤC "CAM", BỎ QUA HOÀN TOÀN CÁC DANH MỤC KHÁC
 		if explicitCat != "" {
 			if explicitCat == "cam" && pCat != "cam" {
-				continue
-			}
-			if explicitCat == "hong_tao" && pCat != "hong_tao" {
 				continue
 			}
 			if explicitCat == "tao" && (pCat != "tao" || pCat == "hong_tao") {
 				continue
 			}
+			if explicitCat == "hong_tao" && pCat != "hong_tao" {
+				continue
+			}
 			if explicitCat == "quyt" && pCat != "quyt" {
+				continue
+			}
+			if explicitCat == "nho" && !strings.Contains(pCat, "nho") {
 				continue
 			}
 		}
@@ -228,7 +215,7 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			for _, pw := range pWords {
 				if w == pw {
 					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
-						score += 40
+						score += 40 // Điểm cho từ như: "uc", "nam phi", "kieng", "s55", "mfc"...
 					}
 				} else if len([]rune(w)) >= 3 && strings.HasPrefix(pw, w) {
 					if w != "cam" && w != "tao" && w != "nho" {
@@ -309,7 +296,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 2. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM (Khóa chặt danh mục, ví dụ: "cam úc", "cam nam phi")
+	// 2. TÌM KIẾM ĐÍCH DANH MÃ SẢN PHẨM (Ví dụ: "cam úc", "cam nam phi", "envy sz30"...)
 	matchedProd := findSpecificProduct(userMsg, available)
 	if matchedProd != nil {
 		sess.LastProduct = *matchedProd
@@ -345,7 +332,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
 	}
 
-	// 3. NẾU KHÁCH HỎI CẢ DÒNG CON (ENVY, DAZZLE, QUEEN, MIZUKI...) CHƯA CHỈ SIZE
+	// 3. NẾU KHÁCH HỎI CẢ DÒNG CON CHƯA CHỈ SIZE (ENVY, DAZZLE, QUEEN, MIZUKI...)
 	sublines := []struct {
 		kw    string
 		label string
@@ -373,7 +360,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 4. LỌC TOÀN BỘ THEO DANH MỤC LỚN (CỘT C TRÊN SHEET)
+	// 4. LỌC TOÀN BỘ THEO DANH MỤC LỚN KHI KHÁCH CHỈ HỎI CHUNG (TÁO, CAM, QUÝT, NHO...)
 	if strings.Contains(norm, "hong tao") {
 		return &BotReply{Message: buildCategorySummary("hong_tao", "Hồng Táo", "🍎", available), Product: nil, ShouldSendImg: false}
 	}
@@ -405,18 +392,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: buildCategorySummary("viet_quat", "Việt Quất", "🫐", available), Product: nil, ShouldSendImg: false}
 	}
 
-	// 5. LỌC THEO HÌNH THỨC (HÀNG BAY, HÀNG CONT, NÔNG SẢN VIỆT)
-	if strings.Contains(norm, "hang bay") || strings.Contains(norm, "di bay") || strings.Contains(norm, "air") {
-		return &BotReply{Message: buildHinhThucSummary("bay", "Hàng Bay (Air Cargo)", "✈️", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "hang cont") || strings.Contains(norm, "di cont") {
-		return &BotReply{Message: buildHinhThucSummary("cont", "Hàng Cont Lạnh", "🚢", available), Product: nil, ShouldSendImg: false}
-	}
-	if strings.Contains(norm, "nong san") || strings.Contains(norm, "hang viet") || strings.Contains(norm, "viet nam") {
-		return &BotReply{Message: buildHinhThucSummary("viet", "Nông Sản Việt Nam", "🌾", available), Product: nil, ShouldSendImg: false}
-	}
-
-	// 6. KHÁCH HỎI DỒN GIÁ MÀ TRƯỚC ĐÓ ĐÃ CÓ QUẢ TRONG PHIÊN
+	// 5. KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ SẢN PHẨM LƯU TRONG PHIÊN
 	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
@@ -427,7 +403,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 	}
 
-	// 7. CHÀO HỎI MẶC ĐỊNH
+	// 6. CHÀO HỎI MẶC ĐỊNH
 	return &BotReply{
 		Message: "Dạ Tổng kho trái cây nhập khẩu & Nông sản HP FRUIT (Bồ Đề - Long Biên) xin chào Anh/Chị ạ! Bên em sẵn rất nhiều mã hoa quả chuẩn hàng bay, hàng cont và nông sản sạch tươi ngon mỗi ngày. Anh/Chị đang quan tâm dòng quả nào để em gửi hình ảnh và báo giá chi tiết ạ?",
 		Product: nil,
