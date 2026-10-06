@@ -64,22 +64,58 @@ func isDuplicateMessage(mid string) bool {
 }
 
 func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName string) {
-	if folderURL == "" {
+	if strings.TrimSpace(folderURL) == "" {
 		return
 	}
 
 	files := GlobalDriveHelper.GetImageFilesFromFolder(folderURL)
 	if len(files) > 0 {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Em gửi Anh/Chị hình ảnh thực tế lô %s mới về tại kho bên em ạ:", productName))
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Em gửi Anh/Chị ảnh thực tế lô %s tại kho bên em ạ:", productName))
 		for _, img := range files {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 			if err := sender.UploadAndSendImage(recipientID, img.Filename, img.Data); err != nil {
 				log.Printf("[Meta] Lỗi upload ảnh %s: %v", img.Filename, err)
 			}
 		}
 	} else {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị có thể bấm xem trọn bộ album ảnh và video lô %s tại đây ạ:\n%s", productName, folderURL))
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị bấm vào đây để xem trực tiếp album ảnh thực tế lô %s bên em nhé ạ:\n%s", productName, folderURL))
 	}
+}
+
+// scheduleFollowup quản lý bộ đếm 15 phút không phản hồi
+func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession) {
+	groupURL := os.Getenv("WHOLESALE_GROUP_URL")
+	if strings.TrimSpace(groupURL) == "" {
+		return
+	}
+
+	sessionMutex.Lock()
+	// Hủy bỏ bộ hẹn giờ cũ nếu khách vừa nhắn tin lại
+	if sess.FollowupTimer != nil {
+		sess.FollowupTimer.Stop()
+	}
+
+	// Nếu đã gửi lời mời vào nhóm rồi thì không gửi lại
+	if sess.InvitedToGroup {
+		sessionMutex.Unlock()
+		return
+	}
+
+	// Đặt lịch 15 phút sau
+	sess.FollowupTimer = time.AfterFunc(15*time.Minute, func() {
+		sessionMutex.Lock()
+		if sess.InvitedToGroup {
+			sessionMutex.Unlock()
+			return
+		}
+		sess.InvitedToGroup = true
+		sessionMutex.Unlock()
+
+		msg := fmt.Sprintf("Dạ em thấy mình đang bận chưa kịp phản hồi. Anh/Chị có thể bấm vào link tham gia nhóm cập nhật bảng giá sỉ & theo dõi các cont hàng mới về mỗi ngày của Tổng kho HP FRUIT tại đây nhé ạ:\n👉 %s\n\nCần hỗ trợ gấp hoặc lên đơn gửi xe đi các tỉnh, Anh/Chị cứ nhắn tin trực tiếp tại đây bên em hỗ trợ mình ngay nhé ạ!", groupURL)
+		_ = sender.SendTextMessage(recipientID, msg)
+		log.Printf("[Followup] Đã gửi link nhóm sỉ tự động sau 15p cho khách %s", recipientID)
+	})
+	sessionMutex.Unlock()
 }
 
 func main() {
@@ -139,7 +175,6 @@ func main() {
 				}
 
 				if isDuplicateMessage(mid) {
-					log.Printf("[Webhook] Bỏ qua tin nhắn trùng mid: %s", mid)
 					continue
 				}
 
@@ -152,6 +187,9 @@ func main() {
 					userSessions[senderID] = sess
 				}
 				sessionMutex.Unlock()
+
+				// Kích hoạt/Gia hạn bộ đếm hẹn giờ 15 phút cho khách
+				scheduleFollowup(metaSender, senderID, sess)
 
 				go func(uid, text string, s *UserSession) {
 					reply := ProcessCustomerMessage(text, s, available)

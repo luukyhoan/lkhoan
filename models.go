@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type Product struct {
 	MaSP        string `json:"ma_sp"`        // Cột A (0)
 	TenSP       string `json:"ten_sp"`       // Cột B (1)
@@ -15,4 +17,6 @@ type Product struct {
 
 type UserSession struct {
 	LastProduct Product
+	FollowupTimer  *time.Timer
+	InvitedToGroup bool
 }
