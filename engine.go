@@ -74,7 +74,7 @@ func resolveTaste(p *Product) string {
 		case dm == "hong_tao" || strings.Contains(n, "hong tao"):
 			taste = "Quả đanh giòn, vị ngọt thanh mát, cắn xốp nhẹ giòn tan."
 		case strings.Contains(n, "envy"):
-			taste = "Dòng táo hoàng gia, độ giòn đanh cơm, thơm nức và ngọt đậm sâu."
+			taste = "Dòng táo hoàng gia, cơm giòn đanh, thơm nức và ngọt đậm sâu."
 		case strings.Contains(n, "dazz"):
 			taste = "Cơm giòn đanh, ngọt đậm sâu, cắn ngập miệng bao giòn không xốp."
 		case strings.Contains(n, "queen"):
@@ -89,6 +89,8 @@ func resolveTaste(p *Product) string {
 			taste = "Tép mọng ngập nước, vị ngọt thanh dịu mát, vỏ mỏng thơm ngát."
 		case dm == "kiwi" || strings.Contains(n, "kiwi"):
 			taste = "Ruột vàng mọng nước, ngọt dịu thanh mát chuẩn vị New Zealand."
+		case dm == "le" || strings.Contains(n, "le"):
+			taste = "Quả sáng mã, mọng ngập nước, cắn giòn ngọt đậm đà."
 		case strings.Contains(dm, "nho") || strings.Contains(n, "nho"):
 			taste = "Trái đanh cứng, chùm khít cuống xanh, vị ngọt thơm giòn tan."
 		default:
@@ -125,7 +127,6 @@ func buildFullMenuSummary(available []Product) string {
 	}
 
 	var sections []string
-
 	if items, ok := catMap["tao"]; ok && len(items) > 0 {
 		sections = append(sections, fmt.Sprintf("🍎 Táo: %s", strings.Join(limitItems(items, 5), ", ")))
 	}
@@ -136,13 +137,18 @@ func buildFullMenuSummary(available []Product) string {
 	if len(camQuyt) > 0 {
 		sections = append(sections, fmt.Sprintf("🍊 Cam & Quýt: %s", strings.Join(limitItems(camQuyt, 4), ", ")))
 	}
-	nhoAll := append(catMap["nho"], catMap["nho_sua"]...)
-	nhoAll = append(nhoAll, catMap["nho_do"]...)
-	nhoAll = append(nhoAll, catMap["nho_ngon"]...)
-	nhoAll = append(nhoAll, catMap["nho_den"]...)
+	
+	// Gom toàn bộ họ nhà nho
+	var nhoAll []string
+	for k, list := range catMap {
+		if strings.Contains(k, "nho") {
+			nhoAll = append(nhoAll, list...)
+		}
+	}
 	if len(nhoAll) > 0 {
 		sections = append(sections, fmt.Sprintf("🍇 Nho: %s", strings.Join(limitItems(nhoAll, 5), ", ")))
 	}
+
 	if items, ok := catMap["dua"]; ok && len(items) > 0 {
 		sections = append(sections, fmt.Sprintf("🍈 Dưa: %s", strings.Join(limitItems(items, 3), ", ")))
 	}
@@ -163,11 +169,24 @@ func buildFullMenuSummary(available []Product) string {
 		strings.Join(sections, "\n"))
 }
 
+// getProductsByCategory: Hỗ trợ tìm kiếm thông minh, gom cả họ nho nếu hỏi chung
 func getProductsByCategory(categoryName string, available []Product) []Product {
 	var list []Product
 	for _, p := range available {
-		if strings.EqualFold(p.DanhMuc, categoryName) && p.SoLuong > 0 {
-			list = append(list, p)
+		if p.SoLuong <= 0 {
+			continue
+		}
+		cat := strings.ToLower(p.DanhMuc)
+		
+		if categoryName == "nho" {
+			// Nếu hỏi "nho" chung: gom tất cả nho_sua, nho_do, nho_den, nho_ngon...
+			if strings.Contains(cat, "nho") {
+				list = append(list, p)
+			}
+		} else {
+			if strings.EqualFold(cat, categoryName) {
+				list = append(list, p)
+			}
 		}
 	}
 	return list
@@ -183,7 +202,6 @@ func handleCategoryInquiry(categoryName, label, icon string, isWholesale, isReta
 		}
 	}
 
-	// NẾU CHỈ CÓ DUY NHẤT 1 MÃ: Vào thẳng mã đó!
 	if len(prods) == 1 {
 		p := prods[0]
 		sess.LastProduct = p
@@ -218,7 +236,6 @@ func handleCategoryInquiry(categoryName, label, icon string, isWholesale, isReta
 		return &BotReply{Message: msg, Product: &p, ShouldSendImg: true}
 	}
 
-	// NẾU CÓ TỪ 2 MÃ TRỞ LÊN: Liệt kê thực đơn để khách chọn
 	var items []string
 	for _, p := range prods {
 		items = append(items, fmt.Sprintf("%s %s (%s)", icon, p.TenSP, p.QuyCach))
@@ -245,6 +262,15 @@ func detectExplicitFruitCategory(norm string) string {
 	}
 	if strings.Contains(norm, "nho sua") {
 		return "nho_sua"
+	}
+	if strings.Contains(norm, "nho do") {
+		return "nho_do"
+	}
+	if strings.Contains(norm, "nho den") {
+		return "nho_den"
+	}
+	if strings.Contains(norm, "nho ngon tay") {
+		return "nho_ngon"
 	}
 	if strings.Contains(norm, "cam") {
 		return "cam"
@@ -323,13 +349,24 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			if explicitCat == "kiwi" && pCat != "kiwi" {
 				continue
 			}
+			if explicitCat == "le" && pCat != "le" {
+				continue
+			}
+			if explicitCat == "nho_sua" && pCat != "nho_sua" {
+				continue
+			}
+			if explicitCat == "nho_do" && pCat != "nho_do" {
+				continue
+			}
+			if explicitCat == "nho_den" && pCat != "nho_den" {
+				continue
+			}
 			if explicitCat == "nho" && !strings.Contains(pCat, "nho") {
 				continue
 			}
 		}
 
 		score := 0
-
 		if pCode != "" && strings.Contains(norm, pCode) {
 			score += 150
 		}
@@ -344,7 +381,7 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			}
 			for _, pw := range pWords {
 				if w == pw {
-					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
+					if w != "tao" && w != "nho" && w != "cam" && w != "quyt" && w != "dua" && w != "kiwi" && w != "le" && w != "co" && w != "khong" && w != "gia" && w != "bao" && w != "nhieu" {
 						score += 40
 					}
 				} else if len([]rune(w)) >= 3 && strings.HasPrefix(pw, w) {
@@ -399,7 +436,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: buildFullMenuSummary(available), Product: nil, ShouldSendImg: false}
 	}
 
-	// 2. Mặc cả / mua nhiều
+	// 2. Mặc cả / mua nhiều / số lượng
 	discountPatterns := []string{"mua nhieu", "gia tot hon", "giam gia", "bot khong", "chiet khau", "bot gia", "gia uu dai", "lay nhieu", "so luong nhieu", "co bot", "co giam"}
 	isAskingDiscount := false
 	for _, dp := range discountPatterns {
@@ -486,7 +523,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// TÌM KIẾM ĐÍCH DANH THEO TÊN RIÊNG (vd: "cam úc", "envy sz 30")
+	// TÌM KIẾM ĐÍCH DANH THEO TÊN RIÊNG (vd: "cam úc", "nho sữa mizuki", "envy sz30"...)
 	matchedProd := findSpecificProduct(userMsg, available)
 	if matchedProd != nil {
 		sess.LastProduct = *matchedProd
@@ -522,7 +559,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return &BotReply{Message: msg, Product: p, ShouldSendImg: true}
 	}
 
-	// KIỂM TRA DÒNG CON (ENVY, DAZZLE, QUEEN...)
+	// KIỂM TRA DÒNG CON (ENVY, DAZZLE, QUEEN, MIZUKI...)
 	sublines := []struct {
 		kw    string
 		label string
@@ -558,7 +595,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// KIỂM TRA DANH MỤC (TỰ ĐỘNG: NẾU CÓ 1 MÃ -> VÀO THẲNG MÃ ĐÓ; NẾU NHIỀU MÃ -> GỬI MENU)
+	// KIỂM TRA DANH MỤC
 	if strings.Contains(norm, "hong tao") {
 		return handleCategoryInquiry("hong_tao", "Hồng Táo", "🍎", isWholesale, isRetail, sess, available)
 	}
@@ -571,12 +608,25 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	if strings.Contains(norm, "quyt") {
 		return handleCategoryInquiry("quyt", "Quýt", "🍊", isWholesale, isRetail, sess, available)
 	}
+	
+	// PHÂN BIỆT RÕ TỪNG LOẠI NHO VÀ NHO CHUNG
 	if strings.Contains(norm, "nho sua") {
 		return handleCategoryInquiry("nho_sua", "Nho Sữa", "🍇", isWholesale, isRetail, sess, available)
 	}
+	if strings.Contains(norm, "nho do") {
+		return handleCategoryInquiry("nho_do", "Nho Đỏ", "🍇", isWholesale, isRetail, sess, available)
+	}
+	if strings.Contains(norm, "nho den") {
+		return handleCategoryInquiry("nho_den", "Nho Đen", "🍇", isWholesale, isRetail, sess, available)
+	}
+	if strings.Contains(norm, "nho ngon tay") {
+		return handleCategoryInquiry("nho_ngon", "Nho Ngón Tay", "🍇", isWholesale, isRetail, sess, available)
+	}
 	if strings.Contains(norm, "nho") {
+		// Gom toàn bộ họ nho nếu khách chỉ hỏi "có nho không"
 		return handleCategoryInquiry("nho", "Nho", "🍇", isWholesale, isRetail, sess, available)
 	}
+
 	if strings.Contains(norm, "dua") {
 		return handleCategoryInquiry("dua", "Dưa", "🍈", isWholesale, isRetail, sess, available)
 	}
@@ -593,7 +643,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return handleCategoryInquiry("viet_quat", "Việt Quất", "🫐", isWholesale, isRetail, sess, available)
 	}
 
-	// HỎI DỒN GIÁ KHI ĐÃ CÓ QUẢ TRONG PHIÊN
+	// KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ QUẢ TRONG PHIÊN
 	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
