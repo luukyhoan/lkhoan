@@ -78,30 +78,27 @@ func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName s
 			}
 		}
 	} else {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị bấm vào đây để xem trực tiếp album ảnh thực tế lô %s bên em nhé ạ:\n%s", productName, folderURL))
+		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị bấm vào link sau để xem ảnh thực tế lô %s tại kho bên em nhé ạ:\n%s", productName, folderURL))
 	}
 }
 
-// scheduleFollowup quản lý bộ đếm 15 phút không phản hồi
+// scheduleFollowup tự động hẹn giờ 15 phút mời khách vào nhóm Zalo sỉ nếu im lặng
 func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession) {
 	groupURL := os.Getenv("WHOLESALE_GROUP_URL")
 	if strings.TrimSpace(groupURL) == "" {
-		return
+		groupURL = "https://zalo.me/g/8q8it61v5mpczevlrtkh"
 	}
 
 	sessionMutex.Lock()
-	// Hủy bỏ bộ hẹn giờ cũ nếu khách vừa nhắn tin lại
 	if sess.FollowupTimer != nil {
 		sess.FollowupTimer.Stop()
 	}
 
-	// Nếu đã gửi lời mời vào nhóm rồi thì không gửi lại
 	if sess.InvitedToGroup {
 		sessionMutex.Unlock()
 		return
 	}
 
-	// Đặt lịch 15 phút sau
 	sess.FollowupTimer = time.AfterFunc(15*time.Minute, func() {
 		sessionMutex.Lock()
 		if sess.InvitedToGroup {
@@ -111,9 +108,9 @@ func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession)
 		sess.InvitedToGroup = true
 		sessionMutex.Unlock()
 
-		msg := fmt.Sprintf("Dạ em thấy mình đang bận chưa kịp phản hồi. Anh/Chị có thể bấm vào link tham gia nhóm cập nhật bảng giá sỉ & theo dõi các cont hàng mới về mỗi ngày của Tổng kho HP FRUIT tại đây nhé ạ:\n👉 %s\n\nCần hỗ trợ gấp hoặc lên đơn gửi xe đi các tỉnh, Anh/Chị cứ nhắn tin trực tiếp tại đây bên em hỗ trợ mình ngay nhé ạ!", groupURL)
+		msg := fmt.Sprintf("Dạ em thấy mình đang bận chưa kịp phản hồi. Anh/Chị có thể bấm vào link tham gia nhóm Zalo cập nhật bảng giá sỉ & theo dõi các cont hàng mới về mỗi ngày của Tổng kho HP FRUIT tại đây nhé ạ:\n👉 %s\n\nCần hỗ trợ gấp hoặc lên đơn gửi xe đi các tỉnh, Anh/Chị cứ nhắn tin trực tiếp tại đây bên em hỗ trợ mình ngay nhé ạ!", groupURL)
 		_ = sender.SendTextMessage(recipientID, msg)
-		log.Printf("[Followup] Đã gửi link nhóm sỉ tự động sau 15p cho khách %s", recipientID)
+		log.Printf("[Followup] Đã gửi lời mời vào nhóm sỉ tự động cho khách %s", recipientID)
 	})
 	sessionMutex.Unlock()
 }
@@ -135,6 +132,12 @@ func main() {
 
 	r := gin.Default()
 
+	// Endpoint dành riêng cho UptimeRobot ping định kỳ 5 phút/lần chống ngủ đông
+	r.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	// Webhook xác thực với Meta
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
 		token := c.Query("hub.verify_token")
@@ -147,6 +150,7 @@ func main() {
 		c.String(http.StatusForbidden, "Forbidden")
 	})
 
+	// Webhook tiếp nhận tin nhắn từ Facebook Messenger
 	r.POST("/webhook", func(c *gin.Context) {
 		var callback WebhookCallback
 		if err := c.ShouldBindJSON(&callback); err != nil {
@@ -188,7 +192,7 @@ func main() {
 				}
 				sessionMutex.Unlock()
 
-				// Kích hoạt/Gia hạn bộ đếm hẹn giờ 15 phút cho khách
+				// Khởi động/Gia hạn bộ đếm 15 phút gửi link nhóm Zalo
 				scheduleFollowup(metaSender, senderID, sess)
 
 				go func(uid, text string, s *UserSession) {
@@ -208,8 +212,8 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Server đang chạy trên cổng %s...", port)
+	log.Printf("HP FRUIT Bot đang chạy trên cổng %s...", port)
 	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Không thể khởi động server: %v", err)
+		log.Fatalf("Lỗi server: %v", err)
 	}
 }
