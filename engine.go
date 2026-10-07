@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -137,8 +138,7 @@ func buildFullMenuSummary(available []Product) string {
 	if len(camQuyt) > 0 {
 		sections = append(sections, fmt.Sprintf("🍊 Cam & Quýt: %s", strings.Join(limitItems(camQuyt, 4), ", ")))
 	}
-	
-	// Gom toàn bộ họ nhà nho
+
 	var nhoAll []string
 	for k, list := range catMap {
 		if strings.Contains(k, "nho") {
@@ -169,7 +169,6 @@ func buildFullMenuSummary(available []Product) string {
 		strings.Join(sections, "\n"))
 }
 
-// getProductsByCategory: Hỗ trợ tìm kiếm thông minh, gom cả họ nho nếu hỏi chung
 func getProductsByCategory(categoryName string, available []Product) []Product {
 	var list []Product
 	for _, p := range available {
@@ -177,9 +176,7 @@ func getProductsByCategory(categoryName string, available []Product) []Product {
 			continue
 		}
 		cat := strings.ToLower(p.DanhMuc)
-		
 		if categoryName == "nho" {
-			// Nếu hỏi "nho" chung: gom tất cả nho_sua, nho_do, nho_den, nho_ngon...
 			if strings.Contains(cat, "nho") {
 				list = append(list, p)
 			}
@@ -427,16 +424,84 @@ func containsWord(norm, target string) bool {
 	return false
 }
 
+// extractQuantity nhận diện câu chứa số lượng đặt (vd: "10 thùng", "2 thung", "5 hop", "3 can")
+func extractQuantity(userMsg string) string {
+	norm := normalizeText(userMsg)
+	// Tìm pattern dạng số + (thùng|thung|hộp|hop|kg|cân|can|yếm)
+	re := regexp.MustCompile(`(?i)(\d+)\s*(thung|thùng|hop|hộp|kg|can|cân|yem|yếm|qua|quả|trai|trái)`)
+	matches := re.FindStringSubmatch(userMsg)
+	if len(matches) > 0 {
+		return matches[0]
+	}
+
+	// Nếu chỉ gõ mỗi số nguyên: "10", "5", "20"
+	numOnly := regexp.MustCompile(`^\d+$`)
+	if numOnly.MatchString(strings.TrimSpace(norm)) {
+		return strings.TrimSpace(norm) + " thùng"
+	}
+	return ""
+}
+
+// extractPhone bóc tách số điện thoại từ tin nhắn khách
+func extractPhone(userMsg string) string {
+	re := regexp.MustCompile(`(0[3|5|7|8|9]\d{8}|\+84[3|5|7|8|9]\d{8})`)
+	return re.FindString(strings.ReplaceAll(userMsg, " ", ""))
+}
+
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
 	norm := expandAliases(rawNorm)
 
-	// 1. Menu tổng quan hôm nay có quả gì
+	// BƯỚC 1: XỬ LÝ KHI ĐANG TRONG TRẠNG THÁI CHỜ THÔNG TIN ĐỊA CHỈ & SĐT
+	phone := extractPhone(userMsg)
+	if sess != nil && sess.OrderStep == "AWAITING_INFO" {
+		if phone != "" || len(strings.Fields(userMsg)) >= 3 {
+			// Khách đã cung cấp địa chỉ / số điện thoại
+			if phone != "" {
+				sess.CustomerPhone = phone
+			}
+			// Loại bỏ sđt ra khỏi địa chỉ để lưu cho đẹp
+			address := strings.ReplaceAll(userMsg, phone, "")
+			address = strings.TrimSpace(address)
+			if address != "" {
+				sess.CustomerAddress = address
+			}
+
+			sess.OrderStep = "CONFIRMED"
+			p := sess.LastProduct
+
+			msg := fmt.Sprintf("Dạ Tổng kho HP FRUIT xin xác nhận lại đơn đặt hàng của Anh/Chị ạ:\n\n"+
+				"🍎 Sản phẩm: %s\n"+
+				"📦 Số lượng: %s\n"+
+				"📍 Địa chỉ nhận hàng: %s\n"+
+				"📞 Số điện thoại: %s\n\n"+
+				"Bên em đang chuẩn bị đóng hàng chuẩn đẹp gửi cho mình ngay ạ. Em cảm ơn Anh/Chị nhiều nhé!",
+				p.TenSP, sess.OrderQuantity, sess.CustomerAddress, sess.CustomerPhone)
+
+			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+		}
+	}
+
+	// BƯỚC 2: NHẬN DIỆN KHÁCH BÁO SỐ LƯỢNG ĐẶT HÀNG (VD: "10 THÙNG", "2 THÙNG", "5 HỘP")
+	qty := extractQuantity(userMsg)
+	if qty != "" && sess != nil && sess.LastProduct.MaSP != "" {
+		sess.OrderQuantity = qty
+		sess.OrderStep = "AWAITING_INFO"
+		p := sess.LastProduct
+
+		msg := fmt.Sprintf("Dạ vâng em đã lưu số lượng %s mã %s của Anh/Chị rồi ạ!\n\n"+
+			"Anh/Chị cho em xin thông tin: ĐỊA CHỈ NHẬN HÀNG và SỐ ĐIỆN THOẠI để bên em lên đơn gửi hàng sớm cho mình nhé ạ!",
+			qty, p.TenSP)
+
+		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+	}
+
+	// BƯỚC 3: Menu tổng quan hôm nay có quả gì
 	if isGeneralMenuQuery(rawNorm) || isGeneralMenuQuery(norm) {
 		return &BotReply{Message: buildFullMenuSummary(available), Product: nil, ShouldSendImg: false}
 	}
 
-	// 2. Mặc cả / mua nhiều / số lượng
+	// BƯỚC 4: Mặc cả / mua nhiều / số lượng
 	discountPatterns := []string{"mua nhieu", "gia tot hon", "giam gia", "bot khong", "chiet khau", "bot gia", "gia uu dai", "lay nhieu", "so luong nhieu", "co bot", "co giam"}
 	isAskingDiscount := false
 	for _, dp := range discountPatterns {
@@ -446,7 +511,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 3. Khách sỉ
+	// BƯỚC 5: Khách sỉ
 	wholesalePatterns := []string{"mua ban", "mua buon", "mua si", "gia si", "ban cho", "ban cua hang", "cua hang", "dai ly", "kinh doanh", "vao so luong", "xe hang"}
 	isWholesale := false
 	for _, wp := range wholesalePatterns {
@@ -461,7 +526,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// 4. Khách lẻ
+	// BƯỚC 6: Khách lẻ
 	retailPatterns := []string{"mua an", "mua bieu", "mua dung", "nha dung", "nha su dung", "an thu", "dung thu", "gia dinh", "1 thung", "may can", "hop", "le thung"}
 	isRetail := false
 	if !isWholesale && !isAskingDiscount {
@@ -523,10 +588,11 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		}
 	}
 
-	// TÌM KIẾM ĐÍCH DANH THEO TÊN RIÊNG (vd: "cam úc", "nho sữa mizuki", "envy sz30"...)
+	// TÌM KIẾM ĐÍCH DANH THEO TÊN RIÊNG (vd: "cam úc", "nho sữa mizuki", "quýt úc 2ph"...)
 	matchedProd := findSpecificProduct(userMsg, available)
 	if matchedProd != nil {
 		sess.LastProduct = *matchedProd
+		sess.OrderStep = "" // Reset trạng thái đặt hàng khi hỏi sang quả mới
 		p := matchedProd
 		taste := resolveTaste(p)
 
@@ -577,6 +643,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 			if len(prods) == 1 {
 				p := &prods[0]
 				sess.LastProduct = *p
+				sess.OrderStep = ""
 				taste := resolveTaste(p)
 				msg := fmt.Sprintf("Dạ bên em sẵn mã %s hàng về tươi mới mỗi ngày ạ.\n"+
 					"🍇 Hương vị / Chất ăn: %s\n\n"+
@@ -608,8 +675,6 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	if strings.Contains(norm, "quyt") {
 		return handleCategoryInquiry("quyt", "Quýt", "🍊", isWholesale, isRetail, sess, available)
 	}
-	
-	// PHÂN BIỆT RÕ TỪNG LOẠI NHO VÀ NHO CHUNG
 	if strings.Contains(norm, "nho sua") {
 		return handleCategoryInquiry("nho_sua", "Nho Sữa", "🍇", isWholesale, isRetail, sess, available)
 	}
@@ -623,10 +688,8 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return handleCategoryInquiry("nho_ngon", "Nho Ngón Tay", "🍇", isWholesale, isRetail, sess, available)
 	}
 	if strings.Contains(norm, "nho") {
-		// Gom toàn bộ họ nho nếu khách chỉ hỏi "có nho không"
 		return handleCategoryInquiry("nho", "Nho", "🍇", isWholesale, isRetail, sess, available)
 	}
-
 	if strings.Contains(norm, "dua") {
 		return handleCategoryInquiry("dua", "Dưa", "🍈", isWholesale, isRetail, sess, available)
 	}
@@ -643,14 +706,19 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		return handleCategoryInquiry("viet_quat", "Việt Quất", "🫐", isWholesale, isRetail, sess, available)
 	}
 
-	// KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ QUẢ TRONG PHIÊN
+	// KHÁCH HỎI DỒN GIÁ KHI ĐÃ CÓ QUẢ TRONG PHIÊN: Báo song song cả 2 mức giá
 	if isAskingPrice && sess != nil && sess.LastProduct.MaSP != "" {
 		p := sess.LastProduct
 		taste := resolveTaste(&p)
-		msg := fmt.Sprintf("Dạ bên em sẵn mã %s hàng về tươi mới mỗi ngày ạ.\n"+
+
+		msg := fmt.Sprintf("Dạ em gửi Anh/Chị bảng giá niêm yết mã %s bên em ạ:\n\n"+
+			"📦 Quy cách: %s\n"+
+			"💰 Giá lẻ thùng: %s (dùng gia đình / biếu tặng)\n"+
+			"🚛 Giá sỉ lô: %s (áp dụng khi lấy số lượng / gửi xe)\n"+
 			"🍇 Hương vị / Chất ăn: %s\n\n"+
-			"Bên em có chính sách giá riêng cho khách ăn gia đình và khách lấy sỉ cho shop/đại lý. Không biết Anh/Chị dự tính lấy dùng gia đình hay lấy cho shop để em báo giá tốt nhất cho mình ạ?",
-			p.TenSP, taste)
+			"Anh/Chị dự tính lấy số lượng bao nhiêu thùng để em lên đơn hoặc cân đối chiết khấu tốt nhất cho mình ạ?",
+			p.TenSP, p.QuyCach, p.GiaLeThung, p.GiaSiLo, taste)
+
 		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 	}
 
