@@ -1,5 +1,4 @@
 package main
-package main
 
 import (
 	"fmt"
@@ -194,7 +193,6 @@ func main() {
 			entryPageID := entry.ID
 
 			for _, event := range entry.Messaging {
-				// Xử lý khi admin nhắn tin (Echo)
 				if event.Message.IsEcho {
 					if event.Message.AppID == 0 {
 						pageID := event.Sender.ID
