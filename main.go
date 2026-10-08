@@ -1,4 +1,5 @@
 package main
+package main
 
 import (
 	"fmt"
@@ -21,7 +22,6 @@ var (
 	midMutex      sync.Mutex
 )
 
-// Thời gian bot tạm dừng nhường quyền cho nhân viên/admin (10 phút)
 const AdminCooldownDuration = 10 * time.Minute
 
 type WebhookCallback struct {
@@ -67,34 +67,33 @@ func isDuplicateMessage(mid string) bool {
 	return false
 }
 
-func sendProductPhotos(sender *MetaSender, recipientID, folderURL, productName string) {
+func sendProductPhotos(sender *MetaSender, pageID, recipientID, folderURL, productName string) {
 	if strings.TrimSpace(folderURL) == "" {
 		return
 	}
 
 	files := GlobalDriveHelper.GetImageFilesFromFolder(folderURL)
 	if len(files) > 0 {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Em gửi Anh/Chị ảnh thực tế lô %s tại kho bên em ạ:", productName))
+		_ = sender.SendTextMessage(pageID, recipientID, fmt.Sprintf("📸 Em gửi Anh/Chị ảnh thực tế lô %s tại kho bên em ạ:", productName))
 		for _, img := range files {
 			time.Sleep(250 * time.Millisecond)
-			if err := sender.UploadAndSendImage(recipientID, img.Filename, img.Data); err != nil {
+			if err := sender.UploadAndSendImage(pageID, recipientID, img.Filename, img.Data); err != nil {
 				log.Printf("[Meta] Lỗi upload ảnh %s: %v", img.Filename, err)
 			}
 		}
 	} else {
-		_ = sender.SendTextMessage(recipientID, fmt.Sprintf("📸 Anh/Chị bấm vào link sau để xem ảnh thực tế lô %s tại kho bên em nhé ạ:\n%s", productName, folderURL))
+		_ = sender.SendTextMessage(pageID, recipientID, fmt.Sprintf("📸 Anh/Chị bấm vào link sau để xem ảnh thực tế lô %s tại kho bên em nhé ạ:\n%s", productName, folderURL))
 	}
 }
 
-// markAdminActive ghi nhận thời điểm admin chat tay và tạm hủy timer hiện tại
-func markAdminActive(customerID string) {
+func markAdminActive(sessionKey string) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 
-	sess, exists := userSessions[customerID]
+	sess, exists := userSessions[sessionKey]
 	if !exists {
 		sess = &UserSession{}
-		userSessions[customerID] = sess
+		userSessions[sessionKey] = sess
 	}
 
 	sess.LastAdminMessageTime = time.Now()
@@ -102,12 +101,10 @@ func markAdminActive(customerID string) {
 		sess.FollowupTimer.Stop()
 		sess.FollowupTimer = nil
 	}
-	// Không khóa cứng InvitedToGroup để khi admin rời đi bot vẫn có thể mời nhóm
 	sess.InvitedToGroup = false
-	log.Printf("[Takeover] Admin vừa nhắn cho khách %s -> Tạm dừng bot và timer trong %v", customerID, AdminCooldownDuration)
+	log.Printf("[Takeover] Admin vừa nhắn cho khách %s -> Tạm dừng bot trong %v", sessionKey, AdminCooldownDuration)
 }
 
-// isHumanTakeoverActive kiểm tra xem admin có đang trong khoảng 10 phút trực không
 func isHumanTakeoverActive(sess *UserSession) bool {
 	if sess == nil || sess.LastAdminMessageTime.IsZero() {
 		return false
@@ -115,8 +112,7 @@ func isHumanTakeoverActive(sess *UserSession) bool {
 	return time.Since(sess.LastAdminMessageTime) < AdminCooldownDuration
 }
 
-// scheduleFollowup tự động hẹn giờ 15 phút mời khách vào nhóm Zalo sỉ nếu im lặng
-func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession) {
+func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string, sess *UserSession) {
 	groupURL := os.Getenv("WHOLESALE_GROUP_URL")
 	if strings.TrimSpace(groupURL) == "" {
 		groupURL = "https://zalo.me/g/8q8it61v5mpczevlrtkh"
@@ -134,7 +130,6 @@ func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession)
 
 	sess.FollowupTimer = time.AfterFunc(15*time.Minute, func() {
 		sessionMutex.Lock()
-		// Nếu đã gửi rồi hoặc admin quay lại chat trong 10 phút thì không gửi
 		if sess.InvitedToGroup || isHumanTakeoverActive(sess) {
 			sessionMutex.Unlock()
 			return
@@ -143,8 +138,8 @@ func scheduleFollowup(sender *MetaSender, recipientID string, sess *UserSession)
 		sessionMutex.Unlock()
 
 		msg := fmt.Sprintf("Dạ em thấy mình đang bận chưa kịp phản hồi. Anh/Chị có thể bấm vào link tham gia nhóm Zalo cập nhật bảng giá sỉ & theo dõi các cont hàng mới về mỗi ngày của Tổng kho HP FRUIT tại đây nhé ạ:\n👉 %s\n\nCần hỗ trợ gấp hoặc lên đơn gửi xe đi các tỉnh, Anh/Chị cứ nhắn tin trực tiếp tại đây bên em hỗ trợ mình ngay nhé ạ!", groupURL)
-		_ = sender.SendTextMessage(recipientID, msg)
-		log.Printf("[Followup] Đã gửi lời mời vào nhóm sỉ tự động cho khách %s", recipientID)
+		_ = sender.SendTextMessage(pageID, recipientID, msg)
+		log.Printf("[Followup] Đã gửi lời mời vào nhóm sỉ tự động cho khách %s", sessionKey)
 	})
 	sessionMutex.Unlock()
 }
@@ -166,12 +161,10 @@ func main() {
 
 	r := gin.Default()
 
-	// Endpoint giữ server 24/24 cho UptimeRobot
 	r.GET("/ping", func(c *gin.Context) {
 		c.String(http.StatusOK, "pong")
 	})
 
-	// Webhook xác thực với Meta
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
 		token := c.Query("hub.verify_token")
@@ -184,7 +177,6 @@ func main() {
 		c.String(http.StatusForbidden, "Forbidden")
 	})
 
-	// Webhook tiếp nhận tin nhắn từ Facebook Messenger
 	r.POST("/webhook", func(c *gin.Context) {
 		var callback WebhookCallback
 		if err := c.ShouldBindJSON(&callback); err != nil {
@@ -199,55 +191,58 @@ func main() {
 		}
 
 		for _, entry := range callback.Entry {
+			entryPageID := entry.ID
+
 			for _, event := range entry.Messaging {
-				// KHI ADMIN HOẶC NHÂN VIÊN GỬI TIN BẰNG TAY (IS_ECHO == TRUE)
+				// Xử lý khi admin nhắn tin (Echo)
 				if event.Message.IsEcho {
 					if event.Message.AppID == 0 {
+						pageID := event.Sender.ID
 						customerID := event.Recipient.ID
-						markAdminActive(customerID)
+						sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
+						markAdminActive(sessionKey)
 					}
 					continue
 				}
 
-				senderID := event.Sender.ID
+				pageID := event.Recipient.ID
+				if pageID == "" {
+					pageID = entryPageID
+				}
+				customerID := event.Sender.ID
 				userMsg := strings.TrimSpace(event.Message.Text)
 				mid := event.Message.Mid
 
-				if userMsg == "" {
+				if userMsg == "" || isDuplicateMessage(mid) {
 					continue
 				}
 
-				if isDuplicateMessage(mid) {
-					continue
-				}
+				sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
 
 				sessionMutex.Lock()
-				sess, exists := userSessions[senderID]
+				sess, exists := userSessions[sessionKey]
 				if !exists {
 					sess = &UserSession{}
-					userSessions[senderID] = sess
+					userSessions[sessionKey] = sess
 				}
 				sessionMutex.Unlock()
 
-				// KIỂM TRA QUYỀN TRỰC CHAT:
-				// Nếu admin nhắn trong vòng 10 phút, bot tuyệt đối im lặng
 				if isHumanTakeoverActive(sess) {
-					log.Printf("[Bot Muted] Khách %s nhắn '%s' nhưng Admin đang trực chat -> Bot không can thiệp", senderID, userMsg)
+					log.Printf("[Bot Muted] Khách %s nhắn nhưng Admin đang trực chat -> Bot không can thiệp", sessionKey)
 					continue
 				}
 
-				// Nếu đã quá 10 phút kể từ lúc admin nhắn, bot tự động tiếp quản lại và bật lại timer 15 phút
 				available := inventoryMgr.GetAvailableProducts()
-				scheduleFollowup(metaSender, senderID, sess)
+				scheduleFollowup(metaSender, pageID, customerID, sessionKey, sess)
 
-				go func(uid, text string, s *UserSession) {
+				go func(pID, uID string, sKey string, text string, s *UserSession) {
 					reply := ProcessCustomerMessage(text, s, available)
-					_ = metaSender.SendTextMessage(uid, reply.Message)
+					_ = metaSender.SendTextMessage(pID, uID, reply.Message)
 
 					if reply.ShouldSendImg && reply.Product != nil && reply.Product.FolderAnhID != "" {
-						sendProductPhotos(metaSender, uid, reply.Product.FolderAnhID, reply.Product.TenSP)
+						sendProductPhotos(metaSender, pID, uID, reply.Product.FolderAnhID, reply.Product.TenSP)
 					}
-				}(senderID, userMsg, sess)
+				}(pageID, customerID, sessionKey, userMsg, sess)
 			}
 		}
 	})
@@ -257,7 +252,7 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("HP FRUIT Bot đang chạy trên cổng %s...", port)
+	log.Printf("HP FRUIT Bot đa page đang chạy trên cổng %s...", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Lỗi server: %v", err)
 	}

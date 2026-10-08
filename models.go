@@ -23,7 +23,7 @@ type UserSession struct {
 
 	// Quản lý quy trình chốt đơn
 	OrderStep            string // "" -> "AWAITING_INFO" -> "CONFIRMED"
-	OrderQuantity        string // Số lượng khách báo (vd: "10 thùng")
+	OrderQuantity        string
 	CustomerPhone        string
 	CustomerAddress      string
 }
