@@ -85,7 +85,11 @@ func sendProductPhotos(sender *MetaSender, pageID, recipientID, folderURL, produ
 	}
 }
 
-func markAdminActive(sessionKey string) {
+func markAdminActive(sessionKey, text string) {
+	if strings.Contains(text, "Chị đang ngắm món nào bên em thế") || strings.Contains(text, "Tổng kho") {
+		return
+	}
+
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 
@@ -101,7 +105,7 @@ func markAdminActive(sessionKey string) {
 		sess.FollowupTimer = nil
 	}
 	sess.InvitedToGroup = false
-	log.Printf("[Takeover] Admin vừa nhắn cho khách %s -> Tạm dừng bot trong %v", sessionKey, AdminCooldownDuration)
+	log.Printf("[Takeover] Admin chat tay: '%s' -> Tạm dừng bot trong %v cho %s", text, AdminCooldownDuration, sessionKey)
 }
 
 func isHumanTakeoverActive(sess *UserSession) bool {
@@ -160,9 +164,14 @@ func main() {
 
 	r := gin.Default()
 
-	r.GET("/ping", func(c *gin.Context) {
+	// Endpoint giữ server 24/24 cho UptimeRobot (hỗ trợ cả GET, HEAD và root "/")
+	pingHandler := func(c *gin.Context) {
 		c.String(http.StatusOK, "pong")
-	})
+	}
+	r.GET("/ping", pingHandler)
+	r.HEAD("/ping", pingHandler)
+	r.GET("/", pingHandler)
+	r.HEAD("/", pingHandler)
 
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
@@ -198,7 +207,7 @@ func main() {
 						pageID := event.Sender.ID
 						customerID := event.Recipient.ID
 						sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
-						markAdminActive(sessionKey)
+						markAdminActive(sessionKey, event.Message.Text)
 					}
 					continue
 				}
@@ -226,7 +235,7 @@ func main() {
 				sessionMutex.Unlock()
 
 				if isHumanTakeoverActive(sess) {
-					log.Printf("[Bot Muted] Khách %s nhắn nhưng Admin đang trực chat -> Bot không can thiệp", sessionKey)
+					log.Printf("[Bot Muted] Khách %s nhắn nhưng Admin đang trực -> Bỏ qua", sessionKey)
 					continue
 				}
 
@@ -250,7 +259,7 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("HP FRUIT Bot đa page đang chạy trên cổng %s...", port)
+	log.Printf("HP FRUIT Bot đang chạy trên cổng %s...", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Lỗi server: %v", err)
 	}
