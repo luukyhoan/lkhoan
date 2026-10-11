@@ -86,7 +86,7 @@ func sendProductPhotos(sender *MetaSender, pageID, recipientID, folderURL, produ
 }
 
 func markAdminActive(sessionKey, text string) {
-	if strings.Contains(text, "Chị đang ngắm món nào bên em thế") || strings.Contains(text, "Tổng kho") {
+	if strings.Contains(text, "Chị đang ngắm món nào bên em thế") || strings.Contains(text, "Tổng kho") || strings.Contains(text, "cảm ơn bạn đã liên hệ") {
 		return
 	}
 
@@ -164,7 +164,7 @@ func main() {
 
 	r := gin.Default()
 
-	// Endpoint giữ server 24/24 cho UptimeRobot (hỗ trợ cả GET, HEAD và root "/")
+	// Endpoint kiểm tra và giữ kết nối 24/7 cho UptimeRobot
 	pingHandler := func(c *gin.Context) {
 		c.String(http.StatusOK, "pong")
 	}
@@ -172,6 +172,30 @@ func main() {
 	r.HEAD("/ping", pingHandler)
 	r.GET("/", pingHandler)
 	r.HEAD("/", pingHandler)
+
+	// Endpoint trang Chính sách quyền riêng tư để kích hoạt Live Mode trên Meta
+	r.GET("/privacy", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusOK, `<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <title>Chính sách quyền riêng tư - HP FRUIT</title>
+    <style>body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }</style>
+</head>
+<body>
+    <h1>Chính sách quyền riêng tư - HP FRUIT Bot</h1>
+    <p>Chào mừng bạn đến với ứng dụng chăm sóc khách hàng của Tổng kho trái cây & nông sản HP FRUIT.</p>
+    <p>Ứng dụng chatbot này được phát triển nhằm mục đích hỗ trợ tra cứu giá, gửi hình ảnh sản phẩm và hỗ trợ lên đơn hàng tự động trên Facebook Messenger.</p>
+    <h3>1. Thu thập dữ liệu</h3>
+    <p>Chúng tôi chỉ tiếp nhận các thông tin công khai do người dùng gửi trực tiếp qua tin nhắn (bao gồm nội dung chat, tên hiển thị Facebook) và thông tin nhận hàng (số điện thoại, địa chỉ) do bạn tự nguyện cung cấp để phục vụ đóng gói và gửi hàng.</p>
+    <h3>2. Sử dụng thông tin</h3>
+    <p>Thông tin thu thập chỉ được dùng cho mục đích tư vấn, xác nhận đơn hàng và điều phối vận chuyển nội bộ. Chúng tôi cam kết tuyệt đối không chia sẻ hoặc bán dữ liệu cho bất kỳ bên thứ ba nào.</p>
+    <h3>3. Quyền của người dùng</h3>
+    <p>Người dùng có toàn quyền yêu cầu xóa lịch sử trò chuyện hoặc thông tin cá nhân bằng cách liên hệ trực tiếp với quản trị viên qua Fanpage chính thức.</p>
+</body>
+</html>`)
+	})
 
 	r.GET("/webhook", func(c *gin.Context) {
 		mode := c.Query("hub.mode")
@@ -202,6 +226,7 @@ func main() {
 			entryPageID := entry.ID
 
 			for _, event := range entry.Messaging {
+				// Nhận diện khi Admin nhắn tay để tạm dừng bot
 				if event.Message.IsEcho {
 					if event.Message.AppID == 0 {
 						pageID := event.Sender.ID
@@ -234,6 +259,7 @@ func main() {
 				}
 				sessionMutex.Unlock()
 
+				// Nếu admin đang trực chat thì bot bỏ qua
 				if isHumanTakeoverActive(sess) {
 					log.Printf("[Bot Muted] Khách %s nhắn nhưng Admin đang trực -> Bỏ qua", sessionKey)
 					continue
