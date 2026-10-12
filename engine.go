@@ -466,6 +466,45 @@ func isAskingPriceCheck(text string, norm string) bool {
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
+	lowerInput := strings.ToLower(userMsg)
+
+	// BẮT RIÊNG Ý ĐỊNH HỎI NHO SỮA CHUNG CHUNG
+	if strings.Contains(lowerInput, "nho sua") || strings.Contains(lowerInput, "nho sữa") || strings.Contains(lowerInput, "shine muscat") || strings.Contains(lowerInput, "mẫu đơn") {
+		var matchedGrapes []Product
+		for _, p := range available {
+			pLower := strings.ToLower(p.TenSP)
+			if strings.Contains(pLower, "nho sữa") || strings.Contains(pLower, "nho sua") {
+				matchedGrapes = append(matchedGrapes, p)
+			}
+		}
+
+		if len(matchedGrapes) > 0 {
+			var sb strings.Builder
+			sb.WriteString("Dạ hiện tại kho HP FRUIT đang sẵn các mã NHO SỮA tươi ngon, chuẩn hàng bay & cont vip sau ạ:
+
+")
+			for _, g := range matchedGrapes {
+				gia := g.GiaLeThung
+				if gia == "" {
+					gia = g.GiaSiLo
+				}
+				sb.WriteString(fmt.Sprintf("🍇 %s - Giá: %s/thùng
+", g.TenSP, gia))
+			}
+			sb.WriteString("
+Anh/Chị đang quan tâm mã Nho sữa nào để em chụp ảnh thực tế tại kho và lên đơn gửi cho mình nhé ạ!")
+			
+			// Lưu sản phẩm đầu tiên vào phiên để khách hỏi tiếp giá/mua
+			if sess != nil {
+				sess.LastProduct = matchedGrapes[0]
+			}
+			return &BotReply{
+				Message: sb.String(),
+				Product: &matchedGrapes[0],
+				ShouldSendImg: true,
+			}
+		}
+	}
 	norm := expandAliases(rawNorm)
 	lowerMsg := strings.ToLower(strings.TrimSpace(userMsg))
 	askingPrice := isAskingPriceCheck(userMsg, norm)
