@@ -466,6 +466,46 @@ func isAskingPriceCheck(text string, norm string) bool {
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
+	lowerUserMsg := strings.ToLower(userMsg)
+
+	// XỬ LÝ RIÊNG: Khách hỏi chung về dòng NHO SỮA
+	isAskingGeneralNhoSua := (strings.Contains(lowerUserMsg, "nho sua") || strings.Contains(lowerUserMsg, "nho sữa") || strings.Contains(lowerUserMsg, "shine muscat") || strings.Contains(lowerUserMsg, "mẫu đơn") || strings.Contains(lowerUserMsg, "mau don"))
+	// Kiểm tra xem khách có chỉ đích danh mã cụ thể không
+	isSpecificNhoSua := strings.Contains(lowerUserMsg, "mizuki") || strings.Contains(lowerUserMsg, "ginseng") || strings.Contains(lowerUserMsg, "tím") || strings.Contains(lowerUserMsg, "tim") || strings.Contains(lowerUserMsg, "panda") || strings.Contains(lowerUserMsg, "vàng") || strings.Contains(lowerUserMsg, "vang") || strings.Contains(lowerUserMsg, "đỏ") || strings.Contains(lowerUserMsg, "do") || strings.Contains(lowerUserMsg, "xanh") || strings.Contains(lowerUserMsg, "hàn") || strings.Contains(lowerUserMsg, "han")
+
+	if isAskingGeneralNhoSua && !isSpecificNhoSua {
+		var nhoSuaList []Product
+		for _, p := range available {
+			pLow := strings.ToLower(p.TenSP)
+			if strings.Contains(pLow, "nho sữa") || strings.Contains(pLow, "nho sua") {
+				nhoSuaList = append(nhoSuaList, p)
+			}
+		}
+
+		if len(nhoSuaList) > 0 {
+			res := "Dạ Tổng kho HP FRUIT đang sẵn rất nhiều mã NHO SỮA chuẩn vip, tươi ngon mỗi ngày ạ:
+
+"
+			for _, p := range nhoSuaList {
+				price := p.GiaLeThung
+				if price == "" {
+					price = p.GiaSiLo
+				}
+				if price == "" {
+					price = "Ib báo giá sỉ"
+				}
+				res += fmt.Sprintf("🍇 %s - Giá: %s/thùng
+", p.TenSP, price)
+			}
+			res += "
+Anh/Chị muốn lấy loại Nho sữa nào (hoặc ăn thử / làm quà biếu) để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!"
+			return &BotReply{
+				Message: res,
+				Product: &nhoSuaList[0],
+				ShouldSendImg: false,
+			}
+		}
+	}
 	lowerInput := strings.ToLower(userMsg)
 
 	// Nhận diện hỏi dòng Nho Sữa / Shine Muscat / Mẫu Đơn
