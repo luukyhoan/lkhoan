@@ -448,52 +448,83 @@ func extractPhone(userMsg string) string {
 	return re.FindString(strings.ReplaceAll(userMsg, " ", ""))
 }
 
+// isAskingPriceCheck kiểm tra xem tin nhắn có chứa ý định hỏi giá hay không
+func isAskingPriceCheck(text string, norm string) bool {
+	lower := strings.ToLower(text)
+	priceKeywords := []string{
+		"bao nhiêu", "nhiêu", "giá", "bn", "bao tiền", "mấy tiền",
+		"báo giá", "xin giá", "bnhieu", "bnh", "giá c đã", "báo giá c đã",
+		"giá thế nào", "giá sao", "nhiêu 1 thùng", "bao nhiêu 1 thùng",
+	}
+	for _, kw := range priceKeywords {
+		if strings.Contains(lower, kw) || strings.Contains(norm, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
 	norm := expandAliases(rawNorm)
+	lowerMsg := strings.ToLower(strings.TrimSpace(userMsg))
+	askingPrice := isAskingPriceCheck(userMsg, norm)
 
 	// BƯỚC 1: XỬ LÝ KHI ĐANG TRONG TRẠNG THÁI CHỜ THÔNG TIN ĐỊA CHỈ & SĐT
 	phone := extractPhone(userMsg)
 	if sess != nil && sess.OrderStep == "AWAITING_INFO" {
-		if phone != "" || len(strings.Fields(userMsg)) >= 3 {
-			// Khách đã cung cấp địa chỉ / số điện thoại
-			if phone != "" {
-				sess.CustomerPhone = phone
+		if askingPrice {
+			// Khách quay lại hỏi giá hoặc phản bác -> Huỷ trạng thái ép nhập địa chỉ
+			sess.OrderStep = ""
+			sess.OrderQuantity = ""
+		} else {
+			hasAddressClue := strings.Contains(lowerMsg, "số") || strings.Contains(lowerMsg, "đường") ||
+				strings.Contains(lowerMsg, "phố") || strings.Contains(lowerMsg, "ngõ") ||
+				strings.Contains(lowerMsg, "xã") || strings.Contains(lowerMsg, "huyện") ||
+				strings.Contains(lowerMsg, "tỉnh") || strings.Contains(lowerMsg, "tp") ||
+				strings.Contains(lowerMsg, "quận") || strings.Contains(lowerMsg, "phường") ||
+				strings.Contains(lowerMsg, "thôn") || strings.Contains(lowerMsg, "xóm")
+
+			if phone != "" || (hasAddressClue && len(strings.Fields(userMsg)) >= 3) {
+				if phone != "" {
+					sess.CustomerPhone = phone
+				}
+				address := strings.ReplaceAll(userMsg, phone, "")
+				address = strings.TrimSpace(address)
+				if address != "" {
+					sess.CustomerAddress = address
+				}
+
+				sess.OrderStep = "CONFIRMED"
+				p := sess.LastProduct
+
+				msg := fmt.Sprintf("Dạ Tổng kho HP FRUIT xin xác nhận lại đơn đặt hàng của Anh/Chị ạ:\n\n"+
+					"🍎 Sản phẩm: %s\n"+
+					"📦 Số lượng: %s\n"+
+					"📍 Địa chỉ nhận hàng: %s\n"+
+					"📞 Số điện thoại: %s\n\n"+
+					"Bên em đang chuẩn bị đóng hàng chuẩn đẹp gửi cho mình ngay ạ. Em cảm ơn Anh/Chị nhiều nhé!",
+					p.TenSP, sess.OrderQuantity, sess.CustomerAddress, sess.CustomerPhone)
+
+				return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 			}
-			// Loại bỏ sđt ra khỏi địa chỉ để lưu cho đẹp
-			address := strings.ReplaceAll(userMsg, phone, "")
-			address = strings.TrimSpace(address)
-			if address != "" {
-				sess.CustomerAddress = address
-			}
-
-			sess.OrderStep = "CONFIRMED"
-			p := sess.LastProduct
-
-			msg := fmt.Sprintf("Dạ Tổng kho HP FRUIT xin xác nhận lại đơn đặt hàng của Anh/Chị ạ:\n\n"+
-				"🍎 Sản phẩm: %s\n"+
-				"📦 Số lượng: %s\n"+
-				"📍 Địa chỉ nhận hàng: %s\n"+
-				"📞 Số điện thoại: %s\n\n"+
-				"Bên em đang chuẩn bị đóng hàng chuẩn đẹp gửi cho mình ngay ạ. Em cảm ơn Anh/Chị nhiều nhé!",
-				p.TenSP, sess.OrderQuantity, sess.CustomerAddress, sess.CustomerPhone)
-
-			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
 		}
 	}
 
-	// BƯỚC 2: NHẬN DIỆN KHÁCH BÁO SỐ LƯỢNG ĐẶT HÀNG (VD: "10 THÙNG", "2 THÙNG", "5 HỘP")
-	qty := extractQuantity(userMsg)
-	if qty != "" && sess != nil && sess.LastProduct.MaSP != "" {
-		sess.OrderQuantity = qty
-		sess.OrderStep = "AWAITING_INFO"
-		p := sess.LastProduct
+	// BƯỚC 2: NHẬN DIỆN KHÁCH BÁO SỐ LƯỢNG ĐẶT HÀNG (CHỈ XỬ LÝ KHI KHÔNG PHẢI HỎI GIÁ)
+	if !askingPrice {
+		qty := extractQuantity(userMsg)
+		if qty != "" && sess != nil && sess.LastProduct.MaSP != "" {
+			sess.OrderQuantity = qty
+			sess.OrderStep = "AWAITING_INFO"
+			p := sess.LastProduct
 
-		msg := fmt.Sprintf("Dạ vâng em đã lưu số lượng %s mã %s của Anh/Chị rồi ạ!\n\n"+
-			"Anh/Chị cho em xin thông tin: ĐỊA CHỈ NHẬN HÀNG và SỐ ĐIỆN THOẠI để bên em lên đơn gửi hàng sớm cho mình nhé ạ!",
-			qty, p.TenSP)
+			msg := fmt.Sprintf("Dạ vâng em đã lưu số lượng %s mã %s của Anh/Chị rồi ạ!\n\n"+
+				"Anh/Chị cho em xin thông tin: ĐỊA CHỈ NHẬN HÀNG và SỐ ĐIỆN THOẠI để bên em lên đơn gửi hàng sớm cho mình nhé ạ!",
+				qty, p.TenSP)
 
-		return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+			return &BotReply{Message: msg, Product: &p, ShouldSendImg: false}
+		}
 	}
 
 	// BƯỚC 3: Menu tổng quan hôm nay có quả gì
