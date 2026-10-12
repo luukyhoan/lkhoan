@@ -755,7 +755,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 
 	// CHÀO HỎI MẶC ĐỊNH
 	return &BotReply{
-		Message: "Dạ Tổng kho trái cây nhập khẩu & Nông sản HP FRUIT (Bồ Đề - Long Biên) xin chào Anh/Chị ạ! Bên em sẵn rất nhiều mã hoa quả chuẩn hàng bay, hàng cont và nông sản sạch tươi ngon mỗi ngày. Anh/Chị đang quan tâm dòng quả nào để em gửi hình ảnh và báo giá chi tiết ạ?",
+		Message: "",
 		Product: nil,
 		ShouldSendImg: false,
 	}

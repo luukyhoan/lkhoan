@@ -228,12 +228,10 @@ func main() {
 			for _, event := range entry.Messaging {
 				// Nhận diện khi Admin nhắn tay để tạm dừng bot
 				if event.Message.IsEcho {
-					if event.Message.AppID == 0 {
-						pageID := event.Sender.ID
-						customerID := event.Recipient.ID
-						sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
-						markAdminActive(sessionKey, event.Message.Text)
-					}
+					pageID := event.Sender.ID
+					customerID := event.Recipient.ID
+					sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
+					markAdminActive(sessionKey, event.Message.Text)
 					continue
 				}
 
@@ -270,7 +268,9 @@ func main() {
 
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
 					reply := ProcessCustomerMessage(text, s, available)
-					_ = metaSender.SendTextMessage(pID, uID, reply.Message)
+					if reply != nil && strings.TrimSpace(reply.Message) != "" {
+						_ = metaSender.SendTextMessage(pID, uID, reply.Message)
+					}
 
 					if reply.ShouldSendImg && reply.Product != nil && reply.Product.FolderAnhID != "" {
 						sendProductPhotos(metaSender, pID, uID, reply.Product.FolderAnhID, reply.Product.TenSP)
