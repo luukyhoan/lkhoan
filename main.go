@@ -105,7 +105,7 @@ func markAdminActive(sessionKey, text string) {
 		sess.FollowupTimer.Stop()
 	}
 	sess.InvitedToGroup = true
-	if isOrderConfirmation(event.Message.Text) {
+	if isOrderConfirmation(text) {
 		// Đặt cooldown dài 48 tiếng cho khách đã chốt đơn
 		sess.LastAdminMessageTime = time.Now().Add(48 * time.Hour)
 		log.Printf("[Order] Nhận diện Admin chốt đơn cho %s. Đã tắt bot 48h!", sessionKey)
