@@ -100,12 +100,34 @@ func markAdminActive(sessionKey, text string) {
 	}
 
 	sess.LastAdminMessageTime = time.Now()
+	// Hủy bỏ hẹn giờ và đánh dấu không gửi link nhóm Zalo làm phiền khách
+	if sess.FollowupTimer != nil {
+		sess.FollowupTimer.Stop()
+	}
+	sess.InvitedToGroup = true
+	if isOrderConfirmation(event.Message.Text) {
+		// Đặt cooldown dài 48 tiếng cho khách đã chốt đơn
+		sess.LastAdminMessageTime = time.Now().Add(48 * time.Hour)
+		log.Printf("[Order] Nhận diện Admin chốt đơn cho %s. Đã tắt bot 48h!", sessionKey)
+	}
 	if sess.FollowupTimer != nil {
 		sess.FollowupTimer.Stop()
 		sess.FollowupTimer = nil
 	}
 	sess.InvitedToGroup = false
 	log.Printf("[Takeover] Admin chat tay: '%s' -> Tạm dừng bot trong %v cho %s", text, AdminCooldownDuration, sessionKey)
+}
+
+func isOrderConfirmation(msg string) bool {
+	low := strings.ToLower(msg)
+	if strings.Contains(low, "lên đơn") || strings.Contains(low, "len don") ||
+		strings.Contains(low, "chốt đơn") || strings.Contains(low, "chot don") {
+		return true
+	}
+	if strings.Contains(low, " x ") && (strings.Contains(low, "k") || strings.Contains(low, "ship")) {
+		return true
+	}
+	return false
 }
 
 func isHumanTakeoverActive(sess *UserSession) bool {
@@ -126,7 +148,8 @@ func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string
 		sess.FollowupTimer.Stop()
 	}
 
-	if sess.InvitedToGroup {
+	// Nếu đã gửi hoặc admin đã tiếp quản/lên đơn thì tuyệt đối không hẹn giờ gửi Zalo
+	if sess.InvitedToGroup || !sess.LastAdminMessageTime.IsZero() {
 		sessionMutex.Unlock()
 		return
 	}
