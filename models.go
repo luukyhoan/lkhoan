@@ -16,14 +16,15 @@ type Product struct {
 }
 
 type UserSession struct {
+	Greeted              bool
 	LastProduct          Product
 	FollowupTimer        *time.Timer
 	InvitedToGroup       bool
 	LastAdminMessageTime time.Time
 
 	// Quản lý quy trình chốt đơn
-	OrderStep            string // "" -> "AWAITING_INFO" -> "CONFIRMED"
-	OrderQuantity        string
-	CustomerPhone        string
-	CustomerAddress      string
+	OrderStep       string // "" -> "AWAITING_INFO" -> "CONFIRMED"
+	OrderQuantity   string
+	CustomerPhone   string
+	CustomerAddress string
 }

@@ -137,6 +137,39 @@ func isHumanTakeoverActive(sess *UserSession) bool {
 	return time.Since(sess.LastAdminMessageTime) < AdminCooldownDuration
 }
 
+func fetchCustomerName(sender *MetaSender, pageID, psid string) string {
+	sender.mutex.RLock()
+	token := sender.tokens[pageID]
+	sender.mutex.RUnlock()
+	if token == "" {
+		token = os.Getenv("META_PAGE_ACCESS_TOKEN")
+	}
+	if token == "" {
+		return ""
+	}
+	url := fmt.Sprintf("https://graph.facebook.com/v21.0/%s?fields=first_name,name&access_token=%s", psid, token)
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var res struct {
+		FirstName string `json:"first_name"`
+		Name      string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(res.FirstName) != "" {
+		return res.FirstName
+	}
+	return res.Name
+}
+
 func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string, sess *UserSession) {
 	groupURL := os.Getenv("WHOLESALE_GROUP_URL")
 	if strings.TrimSpace(groupURL) == "" {
@@ -290,12 +323,50 @@ func main() {
 				scheduleFollowup(metaSender, pageID, customerID, sessionKey, sess)
 
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
-					reply := ProcessCustomerMessage(text, s, available)
-					if reply != nil && strings.TrimSpace(reply.Message) != "" {
-						_ = metaSender.SendTextMessage(pID, uID, reply.Message)
+					cleanInput := strings.TrimSpace(strings.ToLower(text))
+					isGreetingInput := cleanInput == "." || cleanInput == "hi" || cleanInput == "hello" || cleanInput == "alo" || cleanInput == "chao" || cleanInput == "chào shop" || cleanInput == "o"
+
+					// Khách gửi câu chào, dấu chấm hoặc tin nhắn mở đầu
+					if !s.Greeted && isGreetingInput {
+						s.Greeted = true
+						cName := fetchCustomerName(metaSender, pID, uID)
+						title := "anh/chị"
+						if cName != "" {
+							title = fmt.Sprintf("anh/chị %s", cName)
+						}
+						helloMsg := fmt.Sprintf("Dạ em chào %s ạ! Mình đang cần tìm mã hoa quả nào hay cần nhập sỉ/lẻ loại nào để em gửi ảnh thực tế và báo giá chi tiết cho mình nhé ạ?", title)
+						_ = metaSender.SendTextMessage(pID, uID, helloMsg)
+						return
 					}
 
-					if reply.ShouldSendImg && reply.Product != nil && reply.Product.FolderAnhID != "" {
+					reply := ProcessCustomerMessage(text, s, available)
+
+					var finalMsg string
+					if reply != nil && strings.TrimSpace(reply.Message) != "" {
+						finalMsg = reply.Message
+					} else {
+						// Nếu khách mới nhắn câu đầu chưa rõ quả, chào đón lịch sự
+						if !s.Greeted {
+							s.Greeted = true
+							cName := fetchCustomerName(metaSender, pID, uID)
+							title := "anh/chị"
+							if cName != "" {
+								title = fmt.Sprintf("anh/chị %s", cName)
+							}
+							finalMsg = fmt.Sprintf("Dạ em chào %s ạ! Mình đang quan tâm dòng hoa quả nào để em gửi hình ảnh và báo giá chuẩn kho cho mình nhé ạ?", title)
+						} else {
+							// Câu hỏi khó / tư vấn: Chuyển sang AI
+							finalMsg = AskSmartAI(text, available)
+						}
+					}
+
+					s.Greeted = true
+
+					if strings.TrimSpace(finalMsg) != "" {
+						_ = metaSender.SendTextMessage(pID, uID, finalMsg)
+					}
+
+					if reply != nil && reply.ShouldSendImg && reply.Product != nil && reply.Product.FolderAnhID != "" {
 						sendProductPhotos(metaSender, pID, uID, reply.Product.FolderAnhID, reply.Product.TenSP)
 					}
 				}(pageID, customerID, sessionKey, userMsg, sess)
