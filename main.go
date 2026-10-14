@@ -137,29 +137,6 @@ func isHumanTakeoverActive(sess *UserSession) bool {
 	return time.Since(sess.LastAdminMessageTime) < AdminCooldownDuration
 }
 
-func getCustomerName(pageAccessToken, psid string) string {
-	url := fmt.Sprintf("https://graph.facebook.com/v21.0/%s?fields=first_name,name&access_token=%s", psid, pageAccessToken)
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-	var res struct {
-		FirstName string `json:"first_name"`
-		Name      string `json:"name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return ""
-	}
-	if res.FirstName != "" {
-		return res.FirstName
-	}
-	return res.Name
-}
-
 func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string, sess *UserSession) {
 	groupURL := os.Getenv("WHOLESALE_GROUP_URL")
 	if strings.TrimSpace(groupURL) == "" {
@@ -313,25 +290,6 @@ func main() {
 				scheduleFollowup(metaSender, pageID, customerID, sessionKey, sess)
 
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
-
-					// Xử lý gửi lời chào mở đầu kèm tên khách nếu là tin nhắn đầu tiên hoặc câu ngắn/dấu chấm
-					cleanText := strings.TrimSpace(strings.ToLower(text))
-					isShortGreeting := cleanText == "." || cleanText == "hi" || cleanText == "hello" || cleanText == "alo" || cleanText == "chao" || cleanText == "chào shop" || cleanText == "o"
-
-					if !s.Greeted && (isShortGreeting || (reply == nil || strings.TrimSpace(reply.Message) == "")) {
-						custName := getCustomerName(metaSender.PageAccessToken, uID)
-						xungHo := "anh/chị"
-						if custName != "" {
-							xungHo = fmt.Sprintf("anh/chị %s", custName)
-						}
-						greetingMsg := fmt.Sprintf("Dạ em chào %s ạ! Mình đang cần tìm mã hoa quả nào hay cần nhập sỉ/lẻ loại nào để em gửi ảnh thực tế và báo giá chi tiết cho mình nhé ạ?", xungHo)
-						_ = metaSender.SendTextMessage(pID, uID, greetingMsg)
-						s.Greeted = true
-						scheduleFollowup(metaSender, pID, uID, sessionKey, s)
-						continue
-					}
-					s.Greeted = true
-
 					reply := ProcessCustomerMessage(text, s, available)
 					if reply != nil && strings.TrimSpace(reply.Message) != "" {
 						_ = metaSender.SendTextMessage(pID, uID, reply.Message)
