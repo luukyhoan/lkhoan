@@ -131,6 +131,19 @@ func isOrderConfirmation(msg string) bool {
 	return false
 }
 
+func isSystemAutoReply(msg string) bool {
+	low := strings.ToLower(strings.TrimSpace(msg))
+	if strings.Contains(low, "xin chào, cảm ơn bạn đã liên hệ") ||
+		strings.Contains(low, "chúng tôi đã nhận được tin nhắn") ||
+		strings.Contains(low, "sẽ sớm trả lời") ||
+		strings.Contains(low, "dạ em chào") ||
+		strings.Contains(low, "mình đang cần tìm mã hoa quả nào") ||
+		strings.Contains(low, "tổng kho hp fruit") {
+		return true
+	}
+	return false
+}
+
 func isHumanTakeoverActive(sess *UserSession) bool {
 	if sess == nil || sess.LastAdminMessageTime.IsZero() {
 		return false
@@ -285,6 +298,10 @@ func main() {
 			for _, event := range entry.Messaging {
 				// Nhận diện khi Admin nhắn tay để tạm dừng bot
 				if event.Message.IsEcho {
+					// Nếu là tin nhắn tự động mặc định của Facebook hoặc tin chào của bot thì bỏ qua, không tắt bot
+					if isSystemAutoReply(event.Message.Text) {
+						continue
+					}
 					pageID := event.Sender.ID
 					customerID := event.Recipient.ID
 					sessionKey := fmt.Sprintf("%s_%s", pageID, customerID)
