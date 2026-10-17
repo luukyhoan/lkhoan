@@ -468,39 +468,115 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	rawNorm := normalizeText(userMsg)
 	lowerUserMsg := strings.ToLower(userMsg)
 
-	// Xu ly rieng khi khach hoi chung ve dong Nho Sua
-	isAskingGeneralNhoSua := strings.Contains(lowerUserMsg, "nho sua") || strings.Contains(lowerUserMsg, "nho sữa") || strings.Contains(lowerUserMsg, "shine muscat") || strings.Contains(lowerUserMsg, "mẫu đơn") || strings.Contains(lowerUserMsg, "mau don")
-	isSpecificNhoSua := strings.Contains(lowerUserMsg, "mizuki") || strings.Contains(lowerUserMsg, "ginseng") || strings.Contains(lowerUserMsg, "tím") || strings.Contains(lowerUserMsg, "tim") || strings.Contains(lowerUserMsg, "panda") || strings.Contains(lowerUserMsg, "vàng") || strings.Contains(lowerUserMsg, "vang") || strings.Contains(lowerUserMsg, "đỏ") || strings.Contains(lowerUserMsg, "do") || strings.Contains(lowerUserMsg, "xanh") || strings.Contains(lowerUserMsg, "hàn") || strings.Contains(lowerUserMsg, "han")
 
-	if isAskingGeneralNhoSua && !isSpecificNhoSua {
-		var nhoSuaList []Product
-		for _, p := range available {
-			pLow := strings.ToLower(p.TenSP)
-			if strings.Contains(pLow, "nho sữa") || strings.Contains(pLow, "nho sua") {
-				nhoSuaList = append(nhoSuaList, p)
+	// Xử lý khi khách hỏi chung về các dòng quả (Nho, Táo, Cam, Quýt, Lê, Kiwi, Dưa...)
+	type FruitCat struct {
+		Name      string
+		Keywords  []string
+		Specifics []string
+		Emoji     string
+	}
+
+	categories := []FruitCat{
+		{
+			Name:      "Nho",
+			Keywords:  []string{"nho", "nho sua", "nho sữa", "shine muscat", "mẫu đơn", "mau don"},
+			Specifics: []string{"ngón tay", "ngon tay", "mizuki", "ginseng", "panda", "autumn", "kẹo", "keo", "đen", "den", "đỏ", "do"},
+			Emoji:     "🍇",
+		},
+		{
+			Name:      "Táo",
+			Keywords:  []string{"táo", "tao", "apple"},
+			Specifics: []string{"envy", "dazzle", "gala", "fuji", "rockit", "queen", "nam phi"},
+			Emoji:     "🍎",
+		},
+		{
+			Name:      "Cam",
+			Keywords:  []string{"cam", "orange"},
+			Specifics: []string{"úc", "uc", "vàng", "vang", "ruột đỏ", "cara", "ai cập"},
+			Emoji:     "🍊",
+		},
+		{
+			Name:      "Quýt",
+			Keywords:  []string{"quýt", "quyt", "mandarin"},
+			Specifics: []string{"úc", "uc", "2ph", "đường", "duong"},
+			Emoji:     "🍊",
+		},
+		{
+			Name:      "Kiwi",
+			Keywords:  []string{"kiwi", "kiqu", "kiu"},
+			Specifics: []string{"vàng", "vang", "xanh", "zespri"},
+			Emoji:     "🥝",
+		},
+		{
+			Name:      "Lê",
+			Keywords:  []string{"lê", "le", "pear"},
+			Specifics: []string{"hàn", "han", "nâu", "nau", "nam phi", "má đào", "ma dao"},
+			Emoji:     "🍐",
+		},
+	}
+
+	for _, cat := range categories {
+		isCatMatch := false
+		for _, kw := range cat.Keywords {
+			if strings.Contains(lowerUserMsg, kw) || strings.Contains(rawNorm, kw) {
+				isCatMatch = true
+				break
 			}
 		}
 
-		if len(nhoSuaList) > 0 {
-			res := "Dạ Tổng kho HP FRUIT đang sẵn các mã NHO SỮA tươi ngon sau ạ:\n\n"
-			for _, p := range nhoSuaList {
-				price := p.GiaLeThung
-				if price == "" {
-					price = p.GiaSiLo
+		if isCatMatch {
+			isSpecific := false
+			for _, sp := range cat.Specifics {
+				if strings.Contains(lowerUserMsg, sp) || strings.Contains(rawNorm, sp) {
+					isSpecific = true
+					break
 				}
-				if price == "" {
-					price = "Ib báo giá sỉ"
-				}
-				res += fmt.Sprintf("🍇 %s - Giá: %s/thùng\n", p.TenSP, price)
 			}
-			res += "\nAnh/Chị muốn lấy loại Nho sữa nào để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!"
-			return &BotReply{
-				Message:       res,
-				Product:       &nhoSuaList[0],
-				ShouldSendImg: false,
+
+			// Nếu hỏi chung chung hoặc có chứa "các loại", "những loại"
+			isAskingMultiple := strings.Contains(lowerUserMsg, "các loại") || strings.Contains(lowerUserMsg, "cac loai") ||
+				strings.Contains(lowerUserMsg, "những loại") || strings.Contains(lowerUserMsg, "nhung loai")
+
+			if !isSpecific || isAskingMultiple {
+				var matchedList []Product
+				for _, p := range available {
+					pLow := strings.ToLower(p.TenSP)
+					for _, kw := range cat.Keywords {
+						if strings.Contains(pLow, kw) {
+							matchedList = append(matchedList, p)
+							break
+						}
+					}
+				}
+
+				if len(matchedList) > 1 {
+					res := fmt.Sprintf("Dạ Tổng kho HP FRUIT đang sẵn các mã %s tươi ngon sau ạ:
+
+", strings.ToUpper(cat.Name))
+					for _, p := range matchedList {
+						price := p.GiaLeThung
+						if price == "" {
+							price = p.GiaSiLo
+						}
+						if price == "" {
+							price = "Ib báo giá sỉ"
+						}
+						res += fmt.Sprintf("%s %s - Giá: %s/thùng
+", cat.Emoji, p.TenSP, price)
+					}
+					res += fmt.Sprintf("
+Anh/Chị muốn lấy loại %s nào để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!", cat.Name)
+					return &BotReply{
+						Message:       res,
+						Product:       &matchedList[0],
+						ShouldSendImg: false,
+					}
+				}
 			}
 		}
 	}
+
 	norm := expandAliases(rawNorm)
 	lowerMsg := strings.ToLower(strings.TrimSpace(userMsg))
 	askingPrice := isAskingPriceCheck(userMsg, norm)
