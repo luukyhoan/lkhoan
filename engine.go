@@ -466,6 +466,60 @@ func isAskingPriceCheck(text string, norm string) bool {
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
+
+	// Xử lý khi khách hỏi xem các mặt hàng, có hàng gì, có quả gì, quả nào...
+	catalogKeywords := []string{
+		"các mặt hàng", "cac mat hang", "mặt hàng", "mat hang",
+		"có hàng gì", "co hang gi", "có những hàng gì", "co nhung hang gi",
+		"có quả gì", "co qua gi", "có những quả gì", "co nhung qua gi",
+		"quả nào", "qua nao", "những quả nào", "nhung qua nao",
+		"có hoa quả gì", "co hoa qua gi", "bảng giá tổng", "báo giá tổng",
+		"menu", "xem hàng", "xem hang",
+	}
+
+	isAskingCatalog := false
+	for _, kw := range catalogKeywords {
+		if strings.Contains(lowerUserMsg, kw) || strings.Contains(rawNorm, kw) {
+			isAskingCatalog = true
+			break
+		}
+	}
+
+	if isAskingCatalog {
+		if len(available) == 0 {
+			return &BotReply{
+				Message: "Dạ hiện tại kho đang về thêm các cont hàng mới. Anh/Chị nhắn tin trực tiếp để nhân viên gửi ảnh và báo giá mới nhất nhé ạ!",
+				ShouldSendImg: false,
+			}
+		}
+
+		res := "Dạ Tổng kho HP FRUIT đang sẵn rất nhiều mã hoa quả nhập khẩu tươi ngon về mới mỗi ngày ạ:
+
+"
+		count := 0
+		for _, p := range available {
+			if count >= 8 {
+				break
+			}
+			price := p.GiaLeThung
+			if price == "" {
+				price = p.GiaSiLo
+			}
+			if price == "" {
+				price = "Ib giá sỉ"
+			}
+			res += fmt.Sprintf("✨ %s - Giá: %s/thùng
+", p.TenSP, price)
+			count++
+		}
+		res += "
+Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em gửi ảnh chụp thực tế và tư vấn kỹ hơn nhé ạ!"
+		return &BotReply{
+			Message:       res,
+			ShouldSendImg: false,
+		}
+	}
+
 	lowerUserMsg := strings.ToLower(userMsg)
 
 
