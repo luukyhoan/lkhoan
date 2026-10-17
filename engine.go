@@ -467,14 +467,13 @@ func isAskingPriceCheck(text string, norm string) bool {
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	rawNorm := normalizeText(userMsg)
 
-	// Xử lý khi khách hỏi xem các mặt hàng, có hàng gì, có quả gì, quả nào...
+	// 1. Khách hỏi xem danh mục các mặt hàng, có hàng gì, có quả gì...
 	catalogKeywords := []string{
 		"các mặt hàng", "cac mat hang", "mặt hàng", "mat hang",
 		"có hàng gì", "co hang gi", "có những hàng gì", "co nhung hang gi",
 		"có quả gì", "co qua gi", "có những quả gì", "co nhung qua gi",
 		"quả nào", "qua nao", "những quả nào", "nhung qua nao",
-		"có hoa quả gì", "co hoa qua gi", "bảng giá tổng", "báo giá tổng",
-		"menu", "xem hàng", "xem hang",
+		"báo giá tổng", "bảng giá tổng", "menu",
 	}
 
 	isAskingCatalog := false
@@ -486,16 +485,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	}
 
 	if isAskingCatalog {
-		if len(available) == 0 {
-			return &BotReply{
-				Message: "Dạ hiện tại kho đang về thêm các cont hàng mới. Anh/Chị nhắn tin trực tiếp để nhân viên gửi ảnh và báo giá mới nhất nhé ạ!",
-				ShouldSendImg: false,
-			}
-		}
-
-		res := "Dạ Tổng kho HP FRUIT đang sẵn rất nhiều mã hoa quả nhập khẩu tươi ngon về mới mỗi ngày ạ:
-
-"
+		res := "Dạ Tổng kho HP FRUIT đang sẵn rất nhiều mã hoa quả tươi về mới mỗi ngày ạ:\n\n"
 		count := 0
 		for _, p := range available {
 			if count >= 8 {
@@ -506,24 +496,19 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 				price = p.GiaSiLo
 			}
 			if price == "" {
-				price = "Ib giá sỉ"
+				price = "Ib báo giá sỉ"
 			}
-			res += fmt.Sprintf("✨ %s - Giá: %s/thùng
-", p.TenSP, price)
+			res += fmt.Sprintf("✨ %s - Giá: %s/thùng\n", p.TenSP, price)
 			count++
 		}
-		res += "
-Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em gửi ảnh chụp thực tế và tư vấn kỹ hơn nhé ạ!"
+		res += "\nAnh/Chị muốn lấy sỉ hay lấy ăn gia đình để em gửi ảnh và báo giá chi tiết nhé ạ!"
 		return &BotReply{
 			Message:       res,
 			ShouldSendImg: false,
 		}
 	}
 
-	lowerUserMsg := strings.ToLower(userMsg)
-
-
-	// Xử lý khi khách hỏi chung về các dòng quả (Nho, Táo, Cam, Quýt, Lê, Kiwi, Dưa...)
+	// 2. Khách hỏi chung về các dòng quả (Nho, Táo, Cam, Quýt, Kiwi, Lê...)
 	type FruitCat struct {
 		Name      string
 		Keywords  []string
@@ -534,20 +519,20 @@ Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em
 	categories := []FruitCat{
 		{
 			Name:      "Nho",
-			Keywords:  []string{"nho", "nho sua", "nho sữa", "shine muscat", "mẫu đơn", "mau don"},
+			Keywords:  []string{"nho", "shine muscat", "mẫu đơn", "mau don"},
 			Specifics: []string{"ngón tay", "ngon tay", "mizuki", "ginseng", "panda", "autumn", "kẹo", "keo", "đen", "den", "đỏ", "do"},
 			Emoji:     "🍇",
 		},
 		{
 			Name:      "Táo",
 			Keywords:  []string{"táo", "tao", "apple"},
-			Specifics: []string{"envy", "dazzle", "gala", "fuji", "rockit", "queen", "nam phi"},
+			Specifics: []string{"envy", "dazzle", "gala", "fuji", "rockit", "queen"},
 			Emoji:     "🍎",
 		},
 		{
 			Name:      "Cam",
 			Keywords:  []string{"cam", "orange"},
-			Specifics: []string{"úc", "uc", "vàng", "vang", "ruột đỏ", "cara", "ai cập"},
+			Specifics: []string{"úc", "uc", "vàng", "vang", "ruột đỏ", "cara"},
 			Emoji:     "🍊",
 		},
 		{
@@ -588,7 +573,6 @@ Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em
 				}
 			}
 
-			// Nếu hỏi chung chung hoặc có chứa "các loại", "những loại"
 			isAskingMultiple := strings.Contains(lowerUserMsg, "các loại") || strings.Contains(lowerUserMsg, "cac loai") ||
 				strings.Contains(lowerUserMsg, "những loại") || strings.Contains(lowerUserMsg, "nhung loai")
 
@@ -605,9 +589,7 @@ Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em
 				}
 
 				if len(matchedList) > 1 {
-					res := fmt.Sprintf("Dạ Tổng kho HP FRUIT đang sẵn các mã %s tươi ngon sau ạ:
-
-", strings.ToUpper(cat.Name))
+					res := fmt.Sprintf("Dạ Tổng kho HP FRUIT đang sẵn các mã %s tươi ngon sau ạ:\n\n", strings.ToUpper(cat.Name))
 					for _, p := range matchedList {
 						price := p.GiaLeThung
 						if price == "" {
@@ -616,11 +598,9 @@ Anh/Chị đang quan tâm lấy sỉ về bán hay lấy ăn gia đình để em
 						if price == "" {
 							price = "Ib báo giá sỉ"
 						}
-						res += fmt.Sprintf("%s %s - Giá: %s/thùng
-", cat.Emoji, p.TenSP, price)
+						res += fmt.Sprintf("%s %s - Giá: %s/thùng\n", cat.Emoji, p.TenSP, price)
 					}
-					res += fmt.Sprintf("
-Anh/Chị muốn lấy loại %s nào để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!", cat.Name)
+					res += fmt.Sprintf("\nAnh/Chị muốn lấy loại %s nào để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!", cat.Name)
 					return &BotReply{
 						Message:       res,
 						Product:       &matchedList[0],
@@ -631,6 +611,41 @@ Anh/Chị muốn lấy loại %s nào để em gửi hình ảnh thực tế và
 		}
 	}
 
+	lowerUserMsg := strings.ToLower(userMsg)
+
+	// Xu ly rieng khi khach hoi chung ve dong Nho Sua
+	isAskingGeneralNhoSua := strings.Contains(lowerUserMsg, "nho sua") || strings.Contains(lowerUserMsg, "nho sữa") || strings.Contains(lowerUserMsg, "shine muscat") || strings.Contains(lowerUserMsg, "mẫu đơn") || strings.Contains(lowerUserMsg, "mau don")
+	isSpecificNhoSua := strings.Contains(lowerUserMsg, "mizuki") || strings.Contains(lowerUserMsg, "ginseng") || strings.Contains(lowerUserMsg, "tím") || strings.Contains(lowerUserMsg, "tim") || strings.Contains(lowerUserMsg, "panda") || strings.Contains(lowerUserMsg, "vàng") || strings.Contains(lowerUserMsg, "vang") || strings.Contains(lowerUserMsg, "đỏ") || strings.Contains(lowerUserMsg, "do") || strings.Contains(lowerUserMsg, "xanh") || strings.Contains(lowerUserMsg, "hàn") || strings.Contains(lowerUserMsg, "han")
+
+	if isAskingGeneralNhoSua && !isSpecificNhoSua {
+		var nhoSuaList []Product
+		for _, p := range available {
+			pLow := strings.ToLower(p.TenSP)
+			if strings.Contains(pLow, "nho sữa") || strings.Contains(pLow, "nho sua") {
+				nhoSuaList = append(nhoSuaList, p)
+			}
+		}
+
+		if len(nhoSuaList) > 0 {
+			res := "Dạ Tổng kho HP FRUIT đang sẵn các mã NHO SỮA tươi ngon sau ạ:\n\n"
+			for _, p := range nhoSuaList {
+				price := p.GiaLeThung
+				if price == "" {
+					price = p.GiaSiLo
+				}
+				if price == "" {
+					price = "Ib báo giá sỉ"
+				}
+				res += fmt.Sprintf("🍇 %s - Giá: %s/thùng\n", p.TenSP, price)
+			}
+			res += "\nAnh/Chị muốn lấy loại Nho sữa nào để em gửi hình ảnh thực tế và lên đơn gửi xe cho mình nhé ạ!"
+			return &BotReply{
+				Message:       res,
+				Product:       &nhoSuaList[0],
+				ShouldSendImg: false,
+			}
+		}
+	}
 	norm := expandAliases(rawNorm)
 	lowerMsg := strings.ToLower(strings.TrimSpace(userMsg))
 	askingPrice := isAskingPriceCheck(userMsg, norm)
