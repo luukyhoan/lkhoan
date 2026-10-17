@@ -465,6 +465,7 @@ func isAskingPriceCheck(text string, norm string) bool {
 }
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
+	lowerUserMsg := strings.ToLower(userMsg)
 	rawNorm := normalizeText(userMsg)
 
 	// 1. Khách hỏi xem danh mục các mặt hàng, có hàng gì, có quả gì...
@@ -610,8 +611,6 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 			}
 		}
 	}
-
-	lowerUserMsg := strings.ToLower(userMsg)
 
 	// Xu ly rieng khi khach hoi chung ve dong Nho Sua
 	isAskingGeneralNhoSua := strings.Contains(lowerUserMsg, "nho sua") || strings.Contains(lowerUserMsg, "nho sữa") || strings.Contains(lowerUserMsg, "shine muscat") || strings.Contains(lowerUserMsg, "mẫu đơn") || strings.Contains(lowerUserMsg, "mau don")
