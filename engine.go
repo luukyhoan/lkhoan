@@ -466,6 +466,39 @@ func isAskingPriceCheck(text string, norm string) bool {
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
 	lowerUserMsg := strings.ToLower(userMsg)
+
+	// Xử lý câu hỏi nối tiếp: hỏi giá, số kg, quy cách của sản phẩm vừa tư vấn trước đó
+	isAskingDetails := strings.Contains(lowerUserMsg, "bao nhieu kg") || strings.Contains(lowerUserMsg, "bao nhiêu kg") ||
+		strings.Contains(lowerUserMsg, "may kg") || strings.Contains(lowerUserMsg, "mấy kg") ||
+		strings.Contains(lowerUserMsg, "bao nhieu can") || strings.Contains(lowerUserMsg, "bao nhiêu cân") ||
+		strings.Contains(lowerUserMsg, "gia bao nhieu") || strings.Contains(lowerUserMsg, "giá bao nhiêu") ||
+		strings.Contains(lowerUserMsg, "bao tien") || strings.Contains(lowerUserMsg, "bao tiền") ||
+		strings.Contains(lowerUserMsg, "1thung") || strings.Contains(lowerUserMsg, "1 thùng") ||
+		strings.Contains(lowerUserMsg, "mấy cân") || strings.Contains(lowerUserMsg, "may can")
+
+	if isAskingDetails && sess != nil && sess.LastProduct.TenSP != "" {
+		p := sess.LastProduct
+		price := p.GiaLeThung
+		if price == "" {
+			price = p.GiaSiLo
+		}
+		if price == "" {
+			price = "Ib báo giá sỉ"
+		}
+
+		quyCach := p.QuyCach
+		if quyCach == "" {
+			quyCach = "theo quy cách chuẩn đóng thùng của kho"
+		}
+
+		msg := fmt.Sprintf("Dạ mã %s quy cách đóng thùng là: %s ạ.\nGiá: %s/thùng.\n\nAnh/Chị muốn lấy mấy thùng để em lên đơn gửi xe cho mình luôn nhé ạ!", p.TenSP, quyCach, price)
+		return &BotReply{
+			Message:       msg,
+			Product:       &p,
+			ShouldSendImg: false,
+		}
+	}
+
 	rawNorm := normalizeText(userMsg)
 
 	// 1. Khách hỏi xem danh mục các mặt hàng, có hàng gì, có quả gì...

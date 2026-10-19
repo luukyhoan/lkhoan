@@ -358,6 +358,9 @@ func main() {
 					}
 
 					reply := ProcessCustomerMessage(text, s, available)
+					if reply != nil && reply.Product != nil {
+						s.LastProduct = *reply.Product
+					}
 
 					var finalMsg string
 					if reply != nil && strings.TrimSpace(reply.Message) != "" {
