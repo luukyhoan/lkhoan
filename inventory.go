@@ -83,7 +83,14 @@ func (im *InventoryManager) refreshData() {
 			ChatAn:      getCol(9), // Cột J: Chat_An
 		}
 
-		if p.TenSP != "" {
+		chatAnLow := strings.ToLower(strings.TrimSpace(p.ChatAn))
+		isHidden := chatAnLow == "x" || chatAnLow == "1" || chatAnLow == "true" || chatAnLow == "ẩn" || chatAnLow == "an" || strings.Contains(chatAnLow, "hết")
+
+		// Nếu cột G (Số lượng) bằng 0 hoặc cột J (ChatAn) đánh dấu ẩn thì bỏ qua
+		rawQtyStr := strings.TrimSpace(getCol(6))
+		isOutOfStock := (rawQtyStr == "0") || strings.Contains(strings.ToLower(rawQtyStr), "hết")
+
+		if p.TenSP != "" && !isHidden && !isOutOfStock {
 			prods = append(prods, p)
 		}
 	}
