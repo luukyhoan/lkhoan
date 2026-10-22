@@ -287,7 +287,7 @@ func detectExplicitFruitCategory(norm string) string {
 	if strings.Contains(norm, "kiwi") {
 		return "kiwi"
 	}
-	if strings.Contains(norm, "le") {
+	if containsWord(norm, "le") && !strings.Contains(norm, "dazzle") && !strings.Contains(norm, "dua le") && !strings.Contains(norm, "ban le") && !strings.Contains(norm, "gia le") && !strings.Contains(norm, "mua le") {
 		return "le"
 	}
 	if strings.Contains(norm, "man") {
@@ -966,7 +966,7 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 	if strings.Contains(norm, "kiwi") {
 		return handleCategoryInquiry("kiwi", "Kiwi", "🥝", isWholesale, isRetail, sess, available)
 	}
-	if strings.Contains(norm, "le") {
+	if containsWord(norm, "le") && !strings.Contains(norm, "dazzle") && !strings.Contains(norm, "dua le") && !strings.Contains(norm, "ban le") && !strings.Contains(norm, "gia le") && !strings.Contains(norm, "mua le") {
 		return handleCategoryInquiry("le", "Lê", "🍐", isWholesale, isRetail, sess, available)
 	}
 	if strings.Contains(norm, "man") {
