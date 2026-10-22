@@ -218,6 +218,7 @@ func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string
 }
 
 func main() {
+	startSessionCleaner()
 	_ = godotenv.Load()
 
 	sheetID := os.Getenv("SPREADSHEET_ID")
@@ -404,4 +405,22 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Lỗi server: %v", err)
 	}
+}
+
+// startSessionCleaner tu dong don dep RAM cac session khong hoat dong sau 2 tieng
+func startSessionCleaner() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			sessionMutex.Lock()
+			now := time.Now()
+			for uid, sess := range userSessions {
+				if sess != nil && now.Sub(sess.LastAdminMessageTime) > 2*time.Hour && sess.OrderStep != "AWAITING_INFO" {
+					delete(userSessions, uid)
+				}
+			}
+			sessionMutex.Unlock()
+		}
+	}()
 }
