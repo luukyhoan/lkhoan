@@ -342,6 +342,11 @@ func main() {
 				scheduleFollowup(metaSender, pageID, customerID, sessionKey, sess)
 
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("⚠️ Nasangga ti panic iti goroutine ti mensahe: %v", r)
+						}
+					}()
 					cleanInput := strings.TrimSpace(strings.ToLower(text))
 					isGreetingInput := cleanInput == "." || cleanInput == "hi" || cleanInput == "hello" || cleanInput == "alo" || cleanInput == "chao" || cleanInput == "chào shop" || cleanInput == "o"
 
