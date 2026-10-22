@@ -349,6 +349,9 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 			if explicitCat == "le" && pCat != "le" {
 				continue
 			}
+			if explicitCat == "dua" && !strings.Contains(pCat, "dua") && !strings.Contains(pNorm, "dua") {
+				continue
+			}
 			if explicitCat == "nho_sua" && pCat != "nho_sua" {
 				continue
 			}
