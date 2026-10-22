@@ -344,6 +344,11 @@ func main() {
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
 					defer func() {
 						if r := recover(); r != nil {
+							log.Printf("⚠️ Đã chặn crash từ panic trong luồng tin nhắn: %v", r)
+						}
+					}()
+					defer func() {
+						if r := recover(); r != nil {
 							log.Printf("⚠️ Nasangga ti panic iti goroutine ti mensahe: %v", r)
 						}
 					}()
