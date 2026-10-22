@@ -296,6 +296,18 @@ func detectExplicitFruitCategory(norm string) string {
 	if strings.Contains(norm, "viet quat") {
 		return "viet_quat"
 	}
+	if strings.Contains(norm, "nho xanh") {
+		return "nho_xanh"
+	}
+	if strings.Contains(norm, "dao") {
+		return "dao"
+	}
+	if strings.Contains(norm, "luu") {
+		return "luu"
+	}
+	if strings.Contains(norm, "hong gion") || (strings.Contains(norm, "hong") && !strings.Contains(norm, "hong tao")) {
+		return "hong"
+	}
 	return ""
 }
 
@@ -359,6 +371,18 @@ func findSpecificProduct(userMsg string, available []Product) *Product {
 				continue
 			}
 			if explicitCat == "nho_den" && pCat != "nho_den" {
+				continue
+			}
+			if explicitCat == "nho_xanh" && pCat != "nho_xanh" {
+				continue
+			}
+			if explicitCat == "dao" && pCat != "dao" {
+				continue
+			}
+			if explicitCat == "luu" && pCat != "luu" {
+				continue
+			}
+			if explicitCat == "hong" && pCat != "hong" {
 				continue
 			}
 			if explicitCat == "nho" && !strings.Contains(pCat, "nho") {
