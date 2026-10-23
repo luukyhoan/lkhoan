@@ -88,6 +88,9 @@ func (im *InventoryManager) refreshData() {
 
 		// Nếu cột G (Số lượng) bằng 0 hoặc cột J (ChatAn) đánh dấu ẩn thì bỏ qua
 		if p.TenSP != "" && !isHidden {
+			if p.SoLuong <= 2 {
+				p.SoLuong = 0
+			}
 			prods = append(prods, p)
 		}
 	}
