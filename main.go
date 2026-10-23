@@ -195,13 +195,14 @@ func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string
 		sess.FollowupTimer.Stop()
 	}
 
-	// Nếu đã gửi hoặc admin đã tiếp quản/lên đơn thì tuyệt đối không hẹn giờ gửi Zalo
-	if sess.InvitedToGroup || !sess.LastAdminMessageTime.IsZero() {
+	// Nếu đã mời vào nhóm hoặc Admin đang trực tiếp can thiệp thì không hẹn giờ
+	if sess.InvitedToGroup || isHumanTakeoverActive(sess) {
 		sessionMutex.Unlock()
 		return
 	}
 
-	sess.FollowupTimer = time.AfterFunc(15*time.Minute, func() {
+	log.Printf("[Followup] Bắt đầu hẹn giờ 30 phút gửi link nhóm sỉ cho khách %s", sessionKey)
+	sess.FollowupTimer = time.AfterFunc(30*time.Minute, func() {
 		sessionMutex.Lock()
 		if sess.InvitedToGroup || isHumanTakeoverActive(sess) {
 			sessionMutex.Unlock()
@@ -212,7 +213,7 @@ func scheduleFollowup(sender *MetaSender, pageID, recipientID, sessionKey string
 
 		msg := fmt.Sprintf("Dạ em thấy mình đang bận chưa kịp phản hồi. Anh/Chị có thể bấm vào link tham gia nhóm Zalo cập nhật bảng giá sỉ & theo dõi các cont hàng mới về mỗi ngày của Tổng kho HP FRUIT tại đây nhé ạ:\n👉 %s\n\nCần hỗ trợ gấp hoặc lên đơn gửi xe đi các tỉnh, Anh/Chị cứ nhắn tin trực tiếp tại đây bên em hỗ trợ mình ngay nhé ạ!", groupURL)
 		_ = sender.SendTextMessage(pageID, recipientID, msg)
-		log.Printf("[Followup] Đã gửi lời mời vào nhóm sỉ tự động cho khách %s", sessionKey)
+		log.Printf("[Followup] Đã gửi lời mời vào nhóm sỉ tự động thành công cho khách %s", sessionKey)
 	})
 	sessionMutex.Unlock()
 }
