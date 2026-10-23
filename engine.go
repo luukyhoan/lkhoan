@@ -492,6 +492,9 @@ func isAskingPriceCheck(text string, norm string) bool {
 }
 
 func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Product) *BotReply {
+	if reply := checkAndHandleMultiCategory(userMsg, normalizeText(userMsg), available); reply != nil {
+		return reply
+	}
 	lowerUserMsg := strings.ToLower(userMsg)
 
 	// Xử lý câu hỏi nối tiếp: hỏi giá, số kg, quy cách của sản phẩm vừa tư vấn trước đó
