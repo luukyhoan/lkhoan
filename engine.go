@@ -521,6 +521,15 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 			quyCach = "theo quy cách chuẩn đóng thùng của kho"
 		}
 
+		if p.SoLuong <= 2 {
+			msg := fmt.Sprintf("Dạ mã %s hiện tại bên Tổng kho HP FRUIT đang tạm hết hàng rồi ạ.\n\nAnh/Chị có muốn tham khảo thêm các dòng hoa quả tươi ngon khác đang sẵn tại kho hôm nay không để em gửi bảng giá mình xem qua nhé ạ!", p.TenSP)
+			return &BotReply{
+				Message:       msg,
+				Product:       &p,
+				ShouldSendImg: false,
+			}
+		}
+
 		msg := fmt.Sprintf("Dạ mã %s quy cách đóng thùng là: %s ạ.\nGiá: %s/thùng.\n\nAnh/Chị muốn lấy mấy thùng để em lên đơn gửi xe cho mình luôn nhé ạ!", p.TenSP, quyCach, price)
 		return &BotReply{
 			Message:       msg,
