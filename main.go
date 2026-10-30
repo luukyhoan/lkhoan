@@ -340,6 +340,9 @@ func main() {
 				}
 
 				available := inventoryMgr.GetAvailableProducts()
+				// TẠM DỪNG BOT:
+				log.Printf("[Bot Paused] Đang tạm tắt bot, bỏ qua xử lý tin nhắn của %s", sessionKey)
+				continue
 				scheduleFollowup(metaSender, pageID, customerID, sessionKey, sess)
 
 				go func(pID, uID string, sKey string, text string, s *UserSession) {
