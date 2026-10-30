@@ -649,6 +649,9 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 							if p.SoLuong <= 2 {
 								continue
 							}
+							if p.SoLuong <= 2 {
+								continue
+							}
 							matchedList = append(matchedList, p)
 							break
 						}
@@ -687,6 +690,9 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		for _, p := range available {
 			pLow := strings.ToLower(p.TenSP)
 			if strings.Contains(pLow, "nho sữa") || strings.Contains(pLow, "nho sua") {
+				if p.SoLuong <= 2 {
+					continue
+				}
 				if p.SoLuong <= 2 {
 					continue
 				}
