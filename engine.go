@@ -646,6 +646,9 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 					pLow := strings.ToLower(p.TenSP)
 					for _, kw := range cat.Keywords {
 						if strings.Contains(pLow, kw) {
+							if p.SoLuong <= 2 {
+								continue
+							}
 							matchedList = append(matchedList, p)
 							break
 						}
@@ -684,6 +687,9 @@ func ProcessCustomerMessage(userMsg string, sess *UserSession, available []Produ
 		for _, p := range available {
 			pLow := strings.ToLower(p.TenSP)
 			if strings.Contains(pLow, "nho sữa") || strings.Contains(pLow, "nho sua") {
+				if p.SoLuong <= 2 {
+					continue
+				}
 				nhoSuaList = append(nhoSuaList, p)
 			}
 		}
